@@ -5,12 +5,17 @@ import { useEffect, useState, useCallback } from "react";
 interface Subscription {
   id: number;
   email: string;
+  stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  stripePriceId: string | null;
   status: string;
   plan: string;
   productCode: string | null;
   currentPeriodEnd: string | null;
+  cancelAt: string | null;
   createdAt: string;
+  license: { id: number; key: string; domain: string; status: string } | null;
+  product: { id: number; name: string; code: string } | null;
 }
 
 const statusColors: Record<string, string> = {
@@ -34,6 +39,7 @@ export default function SubscriptionsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,69 +76,126 @@ export default function SubscriptionsPage() {
         </select>
       </div>
 
-      <div className="glass-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/[0.05]">
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Email</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Product</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Plan</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Status</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Renewal</th>
-                <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? [...Array(5)].map((_, i) => (
-                <tr key={i} className="border-b border-white/[0.03]">{[...Array(6)].map((_, j) => <td key={j} className="px-6 py-4"><div className="h-4 w-20 rounded bg-white/[0.04] animate-pulse" /></td>)}</tr>
-              )) : subs.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-16 text-center text-sm text-white/30">No subscriptions found.</td></tr>
-              ) : subs.map((s) => (
-                <tr key={s.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] text-xs font-semibold text-white/40">
-                        {s.email[0].toUpperCase()}
+      <div className="space-y-3">
+        {loading ? [...Array(4)].map((_, i) => (
+          <div key={i} className="glass-card h-20 animate-pulse" />
+        )) : subs.length === 0 ? (
+          <div className="glass-card px-6 py-16 text-center text-sm text-white/30">No subscriptions found.</div>
+        ) : subs.map((s) => (
+          <div key={s.id} className="glass-card overflow-hidden hover:border-white/[0.12] transition-all duration-300">
+            <button
+              onClick={() => setExpanded(expanded === s.id ? null : s.id)}
+              className="flex w-full items-center justify-between px-6 py-5 text-left"
+            >
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-sm font-semibold text-white/40">
+                  {s.email[0].toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white/80 truncate">{s.email}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-400">
+                      {s.product?.name || s.productCode || "—"}
+                    </span>
+                    <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-[10px] font-medium text-white/40 uppercase">{s.plan}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 ml-4">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${statusColors[s.status] || statusColors.incomplete}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${statusDots[s.status] || statusDots.incomplete}`} />
+                  {s.status}
+                </span>
+                <svg className={`h-4 w-4 text-white/20 transition-transform duration-200 ${expanded === s.id ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </button>
+
+            {expanded === s.id && (
+              <div className="border-t border-white/[0.05] px-6 py-5 animate-fade-in">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Stripe Info */}
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/25 mb-2">Stripe</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 w-16 shrink-0">Customer</span>
+                        <code className="font-mono text-[11px] text-[#5f83f4] truncate">{s.stripeCustomerId || "—"}</code>
                       </div>
-                      <span className="text-sm text-white/70">{s.email}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 w-16 shrink-0">Sub ID</span>
+                        <code className="font-mono text-[11px] text-[#5f83f4] truncate">{s.stripeSubscriptionId || "—"}</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 w-16 shrink-0">Price</span>
+                        <code className="font-mono text-[11px] text-white/40 truncate">{s.stripePriceId || "—"}</code>
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="rounded-md bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-400">
-                      {s.productCode || "—"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs font-medium text-white/50 uppercase">{s.plan}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${statusColors[s.status] || statusColors.incomplete}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${statusDots[s.status] || statusDots.incomplete}`} />
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-white/40">
-                    {s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-white/30">
-                    {new Date(s.createdAt).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-white/[0.05] px-6 py-4">
-            <p className="text-xs text-white/30">Page {page} of {totalPages}</p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-30">Previous</button>
-              <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages} className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-30">Next</button>
-            </div>
+                  </div>
+
+                  {/* License Info */}
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/25 mb-2">Linked License</p>
+                    {s.license ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-white/30 w-16 shrink-0">Key</span>
+                          <code className="font-mono text-[11px] text-emerald-400 truncate">{s.license.key}</code>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-white/30 w-16 shrink-0">Domain</span>
+                          <span className="text-[11px] text-white/60">{s.license.domain === "PENDING" ? <span className="text-amber-400">PENDING</span> : s.license.domain}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-white/30 w-16 shrink-0">Status</span>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColors[s.license.status] || statusColors.incomplete}`}>
+                            <span className={`h-1 w-1 rounded-full ${statusDots[s.license.status] || statusDots.incomplete}`} />
+                            {s.license.status}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-white/25">No license linked</p>
+                    )}
+                  </div>
+
+                  {/* Dates */}
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/25 mb-2">Dates</p>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 w-16 shrink-0">Renewal</span>
+                        <span className="text-[11px] text-white/60">{s.currentPeriodEnd ? new Date(s.currentPeriodEnd).toLocaleDateString() : "—"}</span>
+                      </div>
+                      {s.cancelAt && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-white/30 w-16 shrink-0">Cancels</span>
+                          <span className="text-[11px] text-red-400">{new Date(s.cancelAt).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white/30 w-16 shrink-0">Created</span>
+                        <span className="text-[11px] text-white/40">{new Date(s.createdAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        ))}
       </div>
+
+      {totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-between">
+          <p className="text-xs text-white/30">Page {page} of {totalPages}</p>
+          <div className="flex gap-2">
+            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-30">Previous</button>
+            <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages} className="btn-ghost px-3 py-1.5 text-xs disabled:opacity-30">Next</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

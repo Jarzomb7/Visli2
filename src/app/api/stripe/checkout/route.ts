@@ -14,9 +14,9 @@ export async function POST(request: NextRequest) {
 
     const { email, productCode, plan, domain } = body;
 
-    if (!email || !productCode || !plan || !domain) {
+    if (!email || !productCode || !plan) {
       return NextResponse.json(
-        { error: "email, productCode, plan, and domain are required" },
+        { error: "email, productCode, and plan are required" },
         { status: 400 }
       );
     }
@@ -30,9 +30,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const cleanDomain = domain.toLowerCase().trim()
-      .replace(/^https?:\/\//, "").replace(/^www\./, "")
-      .replace(/\/.*$/, "").replace(/:\d+$/, "");
+    const cleanDomain = domain
+      ? domain.toLowerCase().trim()
+          .replace(/^https?:\/\//, "").replace(/^www\./, "")
+          .replace(/\/.*$/, "").replace(/:\d+$/, "")
+      : "PENDING";
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

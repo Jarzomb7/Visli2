@@ -29,6 +29,10 @@ export async function GET(request: NextRequest) {
     const [subscriptions, total] = await Promise.all([
       prisma.subscription.findMany({
         where,
+        include: {
+          license: { select: { id: true, key: true, domain: true, status: true } },
+          product: { select: { id: true, name: true, code: true } },
+        },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,

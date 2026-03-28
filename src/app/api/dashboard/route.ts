@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getAdminSession } from "@/lib/auth";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    const session = await getAdminSession();
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions, totalFeatures, totalClients] =
+      await Promise.all([
+        prisma.license.count(),
+        prisma.license.count({ where: { status: "active" } }),
+        prisma.license.count({ where: { status: "expired" } }),
+        prisma.license.findMany({
+          include: { product: { select: { id: true, name: true, code: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        }),
+        prisma.validationLog.count(),
+        prisma.subscription.count(),
+        prisma.subscription.count({ where: { status: "active" } }),
+        prisma.feature.count(),
+        prisma.user.count({ where: { role: "client" } }),
+      ]);
+
+    // Mock revenue: active subs * avg price
+    const monthlyRevenue = activeSubscriptions * 29;
+    const annualRevenue = monthlyRevenue * 12;
+
+    return NextResponse.json({
+      totalLicenses,
+      activeLicenses,
+      expiredLicenses,
+      recentLicenses,
+      totalValidations,
+      totalSubscriptions,
+      activeSubscriptions,
+      totalFeatures,
+      totalClients,
+      monthlyRevenue,
+      annualRevenue,
+    });
+  } catch (err) {
+    console.error("[DASHBOARD] Error:", err);
+    return NextResponse.json({ error: "Failed to load stats" }, { status: 500 });
+  }
+}

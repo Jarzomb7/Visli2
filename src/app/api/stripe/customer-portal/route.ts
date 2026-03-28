@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getClientSession } from "@/lib/auth";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
+import { getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,6 @@ export async function POST() {
     const session = await getClientSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Find Stripe customer ID from subscriptions
     const sub = await prisma.subscription.findFirst({
       where: { email: session.email, stripeCustomerId: { not: null } },
       select: { stripeCustomerId: true },
@@ -20,9 +20,12 @@ export async function POST() {
       return NextResponse.json({ error: "No Stripe customer found. Purchase a subscription first." }, { status: 404 });
     }
 
-    const portalSession = await stripe.billingPortal.sessions.create({
+    const stripeClient = await getStripe();
+    const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+
+    const portalSession = await stripeClient.billingPortal.sessions.create({
       customer: sub.stripeCustomerId,
-      return_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/app/billing`,
+      return_url: `${appUrl}/app/billing`,
     });
 
     console.log("[PORTAL] ✅ Portal session created for:", session.email);

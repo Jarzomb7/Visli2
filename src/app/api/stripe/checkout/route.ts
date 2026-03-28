@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe, getPriceId } from "@/lib/stripe";
+import { getStripe, getPriceIdAsync } from "@/lib/stripe";
+import { getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const priceId = getPriceId(productCode, plan);
+    const priceId = await getPriceIdAsync(productCode, plan);
     if (!priceId) {
       console.log("[CHECKOUT] ❌ No price configured for:", productCode, plan);
       return NextResponse.json(
@@ -38,7 +39,10 @@ export async function POST(request: NextRequest) {
           .replace(/\/.*$/, "").replace(/:\d+$/, "")
       : "PENDING";
 
-    const session = await stripe.checkout.sessions.create({
+    const stripeClient = await getStripe();
+    const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+
+    const session = await stripeClient.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
       customer_email: email,
@@ -48,8 +52,8 @@ export async function POST(request: NextRequest) {
         plan: plan.toLowerCase(),
         domain: cleanDomain,
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/checkout/cancel`,
+      success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/checkout/cancel`,
     });
 
     console.log("[CHECKOUT] ✅ Session created:", session.id);

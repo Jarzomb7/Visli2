@@ -1,9 +1,25 @@
 import Stripe from "stripe";
+import { getSetting } from "./settings";
 
+// Lazy-initialized Stripe instance
+let _stripe: Stripe | null = null;
+
+export async function getStripe(): Promise<Stripe> {
+  if (_stripe) return _stripe;
+  const key = await getSetting("STRIPE_SECRET_KEY", process.env.STRIPE_SECRET_KEY || "");
+  _stripe = new Stripe(key, { apiVersion: "2024-11-20.acacia", typescript: true });
+  return _stripe;
+}
+
+// Synchronous fallback for existing imports (uses env directly)
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
   apiVersion: "2024-11-20.acacia",
   typescript: true,
 });
+
+export function resetStripeClient(): void {
+  _stripe = null;
+}
 
 export const PLAN_FEATURES: Record<string, string[]> = {
   basic: ["calendar", "payments"],
@@ -17,6 +33,13 @@ export function getFeaturesForPlan(plan: string): string[] {
 export function getPriceId(productCode: string, plan: string): string | null {
   const key = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
   return process.env[key] || null;
+}
+
+/** Async version that checks DB settings first */
+export async function getPriceIdAsync(productCode: string, plan: string): Promise<string | null> {
+  const key = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
+  const val = await getSetting(key);
+  return val || null;
 }
 
 const PRICE_ENV_MAP = [

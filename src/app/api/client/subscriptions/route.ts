@@ -11,7 +11,12 @@ export async function GET() {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const subscriptions = await prisma.subscription.findMany({
-      where: { email: session.email },
+      where: {
+        OR: [
+          { email: session.email },
+          { userId: session.id },
+        ],
+      },
       include: {
         product: { select: { id: true, name: true, code: true } },
         license: { select: { id: true, key: true, domain: true, status: true, expiresAt: true, features: true } },
@@ -37,7 +42,7 @@ export async function DELETE(request: NextRequest) {
     if (!body.subscriptionId) return NextResponse.json({ error: "subscriptionId required" }, { status: 400 });
 
     const sub = await prisma.subscription.findUnique({ where: { id: body.subscriptionId } });
-    if (!sub || sub.email !== session.email) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!sub || (sub.email !== session.email && sub.userId !== session.id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     if (sub.stripeSubscriptionId) {
       try {

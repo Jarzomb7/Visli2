@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
         include: {
           license: { select: { id: true, key: true, domain: true, status: true } },
           product: { select: { id: true, name: true, code: true } },
+          user: { select: { id: true, email: true, name: true, role: true } },
         },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,

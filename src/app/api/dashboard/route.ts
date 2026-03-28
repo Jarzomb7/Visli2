@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions, totalFeatures] =
+    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions, totalFeatures, totalClients] =
       await Promise.all([
         prisma.license.count(),
         prisma.license.count({ where: { status: "active" } }),
@@ -25,7 +25,12 @@ export async function GET() {
         prisma.subscription.count(),
         prisma.subscription.count({ where: { status: "active" } }),
         prisma.feature.count(),
+        prisma.user.count({ where: { role: "client" } }),
       ]);
+
+    // Mock revenue: active subs * avg price
+    const monthlyRevenue = activeSubscriptions * 29;
+    const annualRevenue = monthlyRevenue * 12;
 
     return NextResponse.json({
       totalLicenses,
@@ -36,6 +41,9 @@ export async function GET() {
       totalSubscriptions,
       activeSubscriptions,
       totalFeatures,
+      totalClients,
+      monthlyRevenue,
+      annualRevenue,
     });
   } catch (err) {
     console.error("[DASHBOARD] Error:", err);

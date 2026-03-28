@@ -16,6 +16,7 @@ model User {
   stripeCustomerId String? @unique @map("stripe_customer_id")
   createdAt DateTime @default(now()) @map("created_at")
   addons    Addon[]
+  subscriptions Subscription[]
 
   @@index([role])
   @@map("users")
@@ -69,6 +70,8 @@ model ValidationLog {
 model Subscription {
   id                   Int       @id @default(autoincrement())
   email                String
+  userId               Int?      @map("user_id")
+  user                 User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   stripeCustomerId     String?   @unique @map("stripe_customer_id")
   stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
   stripePriceId        String?   @map("stripe_price_id")
@@ -85,6 +88,7 @@ model Subscription {
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
   @@index([email])
+  @@index([userId])
   @@index([status])
   @@map("subscriptions")
 }

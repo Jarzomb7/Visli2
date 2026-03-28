@@ -2,9 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { stripe, getFeaturesForPlan, resolveFromSubscription } from "@/lib/stripe";
 import { generateLicenseKey } from "@/lib/license";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
 import Stripe from "stripe";
 
 export const dynamic = "force-dynamic";
+
+async function ensureUserExists(email: string, stripeCustomerId?: string): Promise<number> {
+  const cleanEmail = email.toLowerCase().trim();
+  let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+
+  if (!user) {
+    const tempPassword = await bcrypt.hash(uuidv4(), 10);
+    user = await prisma.user.create({
+      data: {
+        email: cleanEmail,
+        password: tempPassword,
+        role: "client",
+        stripeCustomerId: stripeCustomerId || null,
+      },
+    });
+    console.log("[WEBHOOK] ✅ Auto-created user:", cleanEmail, "id:", user.id);
+  } else if (stripeCustomerId && !user.stripeCustomerId) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId },
+    });
+  }
+
+  return user.id;
+}
 
 export async function POST(request: NextRequest) {
   console.log("[WEBHOOK] ===== Stripe webhook received =====");
@@ -13,7 +40,6 @@ export async function POST(request: NextRequest) {
   const sig = request.headers.get("stripe-signature");
 
   if (!sig) {
-    console.log("[WEBHOOK] ❌ Missing stripe-signature header");
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
   }
 
@@ -34,7 +60,6 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
-      // ─── CHECKOUT COMPLETED ────────────────────────────────
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         console.log("[WEBHOOK] checkout.session.completed:", session.id);
@@ -52,7 +77,9 @@ export async function POST(request: NextRequest) {
           break;
         }
 
-        // Fetch subscription for period end and price
+        // Auto-create user if not exists
+        const userId = await ensureUserExists(email, customerId);
+
         let periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         let stripePriceId: string | null = null;
         if (subscriptionId) {
@@ -65,17 +92,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Find product
-        const product = await prisma.product.findUnique({
-          where: { code: productCode },
-        });
+        const product = await prisma.product.findUnique({ where: { code: productCode } });
 
-        // Auto-create license
         const features = getFeaturesForPlan(plan);
         const license = await prisma.license.create({
           data: {
             key: generateLicenseKey(),
-            domain: domain,
+            domain,
             status: "active",
             plan,
             features,
@@ -89,7 +112,6 @@ export async function POST(request: NextRequest) {
 
         console.log("[WEBHOOK] ✅ License auto-created:", license.key, "for", email);
 
-        // Create subscription record linked to license
         await prisma.subscription.upsert({
           where: { stripeSubscriptionId: subscriptionId },
           update: {
@@ -101,9 +123,11 @@ export async function POST(request: NextRequest) {
             stripeCustomerId: customerId,
             stripePriceId,
             licenseId: license.id,
+            userId,
           },
           create: {
             email,
+            userId,
             stripeCustomerId: customerId,
             stripeSubscriptionId: subscriptionId,
             stripePriceId,
@@ -116,16 +140,14 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        console.log("[WEBHOOK] ✅ Subscription linked to license:", license.id);
+        console.log("[WEBHOOK] ✅ Subscription linked to user:", userId, "license:", license.id);
         break;
       }
 
-      // ─── INVOICE PAID (renewal) ────────────────────────────
       case "invoice.paid":
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
         const subscriptionId = invoice.subscription as string;
-
         if (!subscriptionId) break;
 
         console.log("[WEBHOOK] invoice.paid for sub:", subscriptionId);
@@ -135,7 +157,6 @@ export async function POST(request: NextRequest) {
           const periodEnd = new Date(sub.current_period_end * 1000);
           const resolved = resolveFromSubscription(sub);
 
-          // Update subscription
           await prisma.subscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
             data: {
@@ -145,7 +166,6 @@ export async function POST(request: NextRequest) {
             },
           });
 
-          // Extend license
           await prisma.license.updateMany({
             where: { stripeSubId: subscriptionId },
             data: {
@@ -162,14 +182,10 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      // ─── INVOICE FAILED ────────────────────────────────────
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
         const subscriptionId = invoice.subscription as string;
-
         if (!subscriptionId) break;
-
-        console.log("[WEBHOOK] ❌ invoice.payment_failed for sub:", subscriptionId);
 
         await prisma.subscription.updateMany({
           where: { stripeSubscriptionId: subscriptionId },
@@ -185,16 +201,12 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      // ─── SUBSCRIPTION UPDATED (plan change, cancel scheduled) ──
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
-        console.log("[WEBHOOK] customer.subscription.updated:", sub.id, "status:", sub.status);
-
         const periodEnd = new Date(sub.current_period_end * 1000);
         const resolved = resolveFromSubscription(sub);
         const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000) : null;
 
-        // Map Stripe status to our status
         let ourStatus = "active";
         if (sub.status === "past_due") ourStatus = "past_due";
         else if (sub.status === "canceled" || sub.status === "unpaid") ourStatus = "canceled";
@@ -210,16 +222,11 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Sync license status
         let licenseStatus = "active";
         if (ourStatus === "canceled") licenseStatus = "expired";
         else if (ourStatus === "past_due") licenseStatus = "suspended";
 
-        const licenseUpdate: Record<string, unknown> = {
-          status: licenseStatus,
-          expiresAt: periodEnd,
-        };
-
+        const licenseUpdate: Record<string, unknown> = { status: licenseStatus, expiresAt: periodEnd };
         if (resolved) {
           licenseUpdate.plan = resolved.plan;
           licenseUpdate.features = getFeaturesForPlan(resolved.plan);
@@ -230,14 +237,12 @@ export async function POST(request: NextRequest) {
           data: licenseUpdate,
         });
 
-        console.log("[WEBHOOK] ✅ Subscription updated: status=", ourStatus, "plan=", resolved?.plan);
+        console.log("[WEBHOOK] ✅ Subscription updated:", ourStatus);
         break;
       }
 
-      // ─── SUBSCRIPTION DELETED ──────────────────────────────
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
-        console.log("[WEBHOOK] customer.subscription.deleted:", sub.id);
 
         await prisma.subscription.updateMany({
           where: { stripeSubscriptionId: sub.id },

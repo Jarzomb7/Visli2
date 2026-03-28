@@ -9,9 +9,16 @@ export async function GET() {
     const session = await getClientSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const emailOrUser = {
+      OR: [
+        { email: session.email },
+        ...(session.id ? [{ userId: session.id }] : []),
+      ],
+    };
+
     const [subscriptions, licenses, addons] = await Promise.all([
       prisma.subscription.findMany({
-        where: { email: session.email },
+        where: emailOrUser,
         include: {
           product: { select: { name: true, code: true } },
           license: { select: { id: true, key: true, domain: true, status: true } },

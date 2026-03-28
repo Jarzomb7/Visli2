@@ -4,6 +4,8 @@ import { getSession } from "@/lib/auth";
 import { generateLicenseKey, getExpirationDate } from "@/lib/license";
 import { getFeaturesForPlan } from "@/lib/stripe";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getSession();

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, getPriceId } from "@/lib/stripe";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   console.log("[CHECKOUT] ===== Creating checkout session =====");
 

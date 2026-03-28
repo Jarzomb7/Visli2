@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth";
 import { getFeatureMatrix } from "@/lib/features";
 import { ensureFeaturesExist } from "@/lib/features";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const session = await getSession();

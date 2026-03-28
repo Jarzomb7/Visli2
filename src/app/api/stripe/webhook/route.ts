@@ -4,6 +4,8 @@ import { stripe, getFeaturesForPlan, resolveFromSubscription } from "@/lib/strip
 import { generateLicenseKey } from "@/lib/license";
 import Stripe from "stripe";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   console.log("[WEBHOOK] ===== Stripe webhook received =====");
 

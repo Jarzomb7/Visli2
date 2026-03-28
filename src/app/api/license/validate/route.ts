@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getFeaturesForLicense } from "@/lib/features";
 
+export const dynamic = "force-dynamic";
+
 function cleanDomain(raw: string): string {
   return raw
     .toLowerCase()

@@ -45,10 +45,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("[LOGIN] User found, id:", user.id);
+    console.log("[LOGIN] User found, id:", user.id, "role:", user.role);
 
     const passwordMatch = await bcrypt.compare(password, user.password);
-    console.log("[LOGIN] Password match:", passwordMatch);
 
     if (!passwordMatch) {
       console.log("[LOGIN] Password mismatch for:", email);
@@ -58,14 +57,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = await createToken(user.id);
+    const token = await createToken(user.id, user.role);
     setSessionCookie(token);
 
-    console.log("[LOGIN] ✅ Login successful for:", email);
+    console.log("[LOGIN] ✅ Login successful for:", email, "role:", user.role);
 
     return NextResponse.json({
       success: true,
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role: user.role },
     });
   } catch (err) {
     console.error("[LOGIN] ❌ Unexpected error:", err);

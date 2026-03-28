@@ -35,17 +35,17 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
-      data: { email: cleanEmail, password: hashedPassword },
+      data: { email: cleanEmail, password: hashedPassword, role: "client" },
     });
 
     console.log("[REGISTER] ✅ User created:", user.email, "id:", user.id);
 
-    const token = await createToken(user.id);
+    const token = await createToken(user.id, "client");
     setSessionCookie(token);
 
     return NextResponse.json({
       success: true,
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role: user.role },
     });
   } catch (err) {
     console.error("[REGISTER] ❌ Error:", err);

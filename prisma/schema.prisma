@@ -11,8 +11,13 @@ model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
   password  String
+  role      String   @default("client")
+  name      String?
+  stripeCustomerId String? @unique @map("stripe_customer_id")
   createdAt DateTime @default(now()) @map("created_at")
+  addons    Addon[]
 
+  @@index([role])
   @@map("users")
 }
 
@@ -33,6 +38,7 @@ model License {
   usageLogs    UsageLog[]
   subscription Subscription?
 
+  @@index([email])
   @@map("licenses")
 }
 
@@ -118,4 +124,18 @@ model PlanFeature {
   @@unique([plan, featureId, product])
   @@index([plan])
   @@map("plan_features")
+}
+
+model Addon {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  amount    Int      @default(0)
+  status    String   @default("active")
+  meta      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("addons")
 }

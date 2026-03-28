@@ -10,19 +10,19 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret);
 }
 
-export async function createToken(userId: number): Promise<string> {
-  console.log("[AUTH] Creating token for user:", userId);
-  return new SignJWT({ sub: String(userId) })
+export async function createToken(userId: number, role: string = "client"): Promise<string> {
+  console.log("[AUTH] Creating token for user:", userId, "role:", role);
+  return new SignJWT({ sub: String(userId), role })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime("7d")
     .setIssuedAt()
     .sign(getJwtSecret());
 }
 
-export async function verifyToken(token: string): Promise<{ sub: string } | null> {
+export async function verifyToken(token: string): Promise<{ sub: string; role?: string } | null> {
   try {
     const { payload } = await jwtVerify(token, getJwtSecret());
-    return payload as { sub: string };
+    return payload as { sub: string; role?: string };
   } catch (err) {
     console.log("[AUTH] Token verification failed:", err);
     return null;
@@ -30,7 +30,6 @@ export async function verifyToken(token: string): Promise<{ sub: string } | null
 }
 
 export function setSessionCookie(token: string) {
-  console.log("[AUTH] Setting session cookie");
   cookies().set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -41,7 +40,6 @@ export function setSessionCookie(token: string) {
 }
 
 export function clearSessionCookie() {
-  console.log("[AUTH] Clearing session cookie");
   cookies().set(COOKIE_NAME, "", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -51,32 +49,21 @@ export function clearSessionCookie() {
   });
 }
 
-export async function getSession(): Promise<{ id: number; email: string } | null> {
+export async function getSession(): Promise<{ id: number; email: string; role: string } | null> {
   try {
     const cookieStore = cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
-
-    if (!token) {
-      console.log("[AUTH] No session cookie found");
-      return null;
-    }
+    if (!token) return null;
 
     const payload = await verifyToken(token);
-    if (!payload?.sub) {
-      console.log("[AUTH] Invalid token payload");
-      return null;
-    }
+    if (!payload?.sub) return null;
 
     const user = await prisma.user.findUnique({
       where: { id: parseInt(payload.sub) },
-      select: { id: true, email: true },
+      select: { id: true, email: true, role: true },
     });
 
-    if (!user) {
-      console.log("[AUTH] User not found for id:", payload.sub);
-      return null;
-    }
-
+    if (!user) return null;
     return user;
   } catch (err) {
     console.error("[AUTH] getSession error:", err);
@@ -84,19 +71,31 @@ export async function getSession(): Promise<{ id: number; email: string } | null
   }
 }
 
+export async function getAdminSession(): Promise<{ id: number; email: string; role: string } | null> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return null;
+  return session;
+}
+
+export async function getClientSession(): Promise<{ id: number; email: string; role: string } | null> {
+  const session = await getSession();
+  if (!session) return null;
+  return session;
+}
+
 export async function ensureAdminExists(): Promise<void> {
   try {
-    const userCount = await prisma.user.count();
-    if (userCount === 0) {
-      console.log("[SEED] No users found, creating default admin...");
+    const admin = await prisma.user.findUnique({ where: { email: "admin@visli.io" } });
+    if (!admin) {
+      console.log("[SEED] Creating default admin...");
       const hashedPassword = await bcrypt.hash("admin123", 12);
       await prisma.user.create({
-        data: {
-          email: "admin@visli.io",
-          password: hashedPassword,
-        },
+        data: { email: "admin@visli.io", password: hashedPassword, role: "admin" },
       });
       console.log("[SEED] ✅ Default admin created: admin@visli.io / admin123");
+    } else if (admin.role !== "admin") {
+      await prisma.user.update({ where: { id: admin.id }, data: { role: "admin" } });
+      console.log("[SEED] ✅ Updated admin@visli.io role to admin");
     }
   } catch (err) {
     console.error("[SEED] Auto-seed error (non-fatal):", err);
@@ -107,7 +106,6 @@ export async function ensureProductsExist(): Promise<void> {
   try {
     const productCount = await prisma.product.count();
     if (productCount === 0) {
-      console.log("[SEED] No products found, creating defaults...");
       await prisma.product.createMany({
         data: [
           { name: "Booking System", code: "BOOKING_SYSTEM" },
@@ -122,5 +120,4 @@ export async function ensureProductsExist(): Promise<void> {
   }
 }
 
-// Re-export for convenient access in login flow
 export { ensureFeaturesExist } from "./features";

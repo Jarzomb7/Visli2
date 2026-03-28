@@ -6,30 +6,45 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret);
 }
 
+const ADMIN_PATHS = ["/dashboard", "/licenses", "/clients", "/subscriptions", "/features"];
+const CLIENT_PATHS = ["/app"];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const protectedPaths = ["/dashboard", "/licenses", "/clients", "/subscriptions", "/features"];
-  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
+  const isAdminPath = ADMIN_PATHS.some((p) => pathname.startsWith(p));
+  const isClientPath = CLIENT_PATHS.some((p) => pathname.startsWith(p));
 
-  if (!isProtected) return NextResponse.next();
+  if (!isAdminPath && !isClientPath) return NextResponse.next();
 
   const token = request.cookies.get("visli_token")?.value;
 
   if (!token) {
-    console.log("[MIDDLEWARE] No token, redirecting to login");
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   try {
-    await jwtVerify(token, getJwtSecret());
+    const { payload } = await jwtVerify(token, getJwtSecret());
+    const role = (payload as { role?: string }).role || "client";
+
+    // Block clients from admin panel
+    if (isAdminPath && role !== "admin") {
+      return NextResponse.redirect(new URL("/app/dashboard", request.url));
+    }
+
     return NextResponse.next();
   } catch {
-    console.log("[MIDDLEWARE] Invalid token, redirecting to login");
     return NextResponse.redirect(new URL("/login", request.url));
   }
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/licenses/:path*", "/clients/:path*", "/subscriptions/:path*", "/features/:path*"],
+  matcher: [
+    "/dashboard/:path*",
+    "/licenses/:path*",
+    "/clients/:path*",
+    "/subscriptions/:path*",
+    "/features/:path*",
+    "/app/:path*",
+  ],
 };

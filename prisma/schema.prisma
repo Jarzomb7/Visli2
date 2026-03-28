@@ -17,15 +17,20 @@ model User {
 }
 
 model License {
-  id        Int      @id @default(autoincrement())
-  key       String   @unique
-  domain    String
-  status    String   @default("active")
-  plan      String   @default("basic")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  productId Int?     @map("product_id")
-  product   Product? @relation(fields: [productId], references: [id])
+  id           Int        @id @default(autoincrement())
+  key          String     @unique
+  domain       String
+  status       String     @default("active")
+  plan         String     @default("basic")
+  features     String[]   @default([])
+  email        String?
+  domainLocked Boolean    @default(false) @map("domain_locked")
+  stripeSubId  String?    @map("stripe_sub_id")
+  expiresAt    DateTime   @map("expires_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  productId    Int?       @map("product_id")
+  product      Product?   @relation(fields: [productId], references: [id])
+  usageLogs    UsageLog[]
 
   @@map("licenses")
 }
@@ -51,4 +56,33 @@ model ValidationLog {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("validation_logs")
+}
+
+model Subscription {
+  id                   Int      @id @default(autoincrement())
+  email                String
+  stripeCustomerId     String?  @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  stripePriceId        String?  @map("stripe_price_id")
+  status               String   @default("incomplete")
+  plan                 String   @default("basic")
+  productCode          String?  @map("product_code")
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+model UsageLog {
+  id        Int      @id @default(autoincrement())
+  licenseId Int      @map("license_id")
+  license   License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  event     String
+  meta      String?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([licenseId])
+  @@map("usage_logs")
 }

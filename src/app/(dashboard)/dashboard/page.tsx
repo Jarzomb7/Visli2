@@ -8,6 +8,8 @@ interface Stats {
   activeLicenses: number;
   expiredLicenses: number;
   totalValidations: number;
+  totalSubscriptions: number;
+  activeSubscriptions: number;
   recentLicenses: { id: number; key: string; domain: string; status: string; plan: string; expiresAt: string; product?: { id: number; name: string; code: string } | null }[];
 }
 
@@ -27,8 +29,8 @@ export default function DashboardPage() {
     return (
       <div className="animate-fade-in pt-8 lg:pt-0">
         <div className="h-8 w-48 rounded-lg bg-white/[0.06] animate-pulse mb-8" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          {[1,2,3,4].map((i) => <div key={i} className="glass-card h-32 animate-pulse" />)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {[1,2,3,4,5,6].map((i) => <div key={i} className="glass-card h-32 animate-pulse" />)}
         </div>
       </div>
     );
@@ -43,6 +45,10 @@ export default function DashboardPage() {
       icon: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg> },
     { label: "Validations", value: data?.totalValidations ?? 0, color: "from-purple-500/20 to-purple-600/10", iconColor: "text-purple-400",
       icon: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg> },
+    { label: "Subscriptions", value: data?.totalSubscriptions ?? 0, color: "from-cyan-500/20 to-cyan-600/10", iconColor: "text-cyan-400",
+      icon: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg> },
+    { label: "Active Subs", value: data?.activeSubscriptions ?? 0, color: "from-teal-500/20 to-teal-600/10", iconColor: "text-teal-400",
+      icon: <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg> },
   ];
 
   return (
@@ -58,7 +64,7 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
         {cards.map((c, i) => (
           <div key={i} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">
             <div className="flex items-start justify-between">

@@ -20,18 +20,24 @@ async function logValidation(data: {
   ip: string | null;
 }) {
   try {
-    await prisma.validationLog.create({
-      data: {
-        licenseKey: data.licenseKey,
-        domain: data.domain,
-        product: data.product,
-        result: data.result,
-        reason: data.reason,
-        ip: data.ip,
-      },
-    });
+    await prisma.validationLog.create({ data: {
+      licenseKey: data.licenseKey,
+      domain: data.domain,
+      product: data.product,
+      result: data.result,
+      reason: data.reason,
+      ip: data.ip,
+    }});
   } catch (err) {
     console.error("[VALIDATE-LOG] Failed to write log:", err);
+  }
+}
+
+async function logUsage(licenseId: number, event: string, ip: string | null, meta?: string) {
+  try {
+    await prisma.usageLog.create({ data: { licenseId, event, ip, meta } });
+  } catch (err) {
+    console.error("[USAGE-LOG] Failed to write:", err);
   }
 }
 
@@ -40,138 +46,76 @@ export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown";
 
   console.log("[VALIDATE] ===== License validation request =====");
-  console.log("[VALIDATE] IP:", ip);
 
   try {
     let body: { key?: string; domain?: string; product?: string };
     try {
       body = await request.json();
     } catch {
-      console.log("[VALIDATE] ❌ Invalid request body");
-      return NextResponse.json(
-        { valid: false, reason: "Invalid request body" },
-        { status: 400 }
-      );
+      return NextResponse.json({ valid: false, reason: "Invalid request body" }, { status: 400 });
     }
 
     const { key, domain, product } = body;
 
     if (!key || !domain) {
-      console.log("[VALIDATE] ❌ Missing key or domain");
-      await logValidation({
-        licenseKey: key || "MISSING",
-        domain: domain || "MISSING",
-        product: product || null,
-        result: "invalid",
-        reason: "Missing required fields: key and domain",
-        ip,
-      });
-      return NextResponse.json({
-        valid: false,
-        reason: "Missing required fields: key and domain",
-      });
+      await logValidation({ licenseKey: key || "MISSING", domain: domain || "MISSING", product: product || null, result: "invalid", reason: "Missing required fields", ip });
+      return NextResponse.json({ valid: false, reason: "Missing required fields: key and domain" });
     }
 
     console.log("[VALIDATE] Key:", key, "Domain:", domain, "Product:", product || "any");
 
-    // Find license with product relation
     const license = await prisma.license.findUnique({
       where: { key },
       include: { product: true },
     });
 
-    // License not found
     if (!license) {
-      console.log("[VALIDATE] ❌ License not found:", key);
-      await logValidation({
-        licenseKey: key,
-        domain,
-        product: product || null,
-        result: "invalid",
-        reason: "License not found",
-        ip,
-      });
-      return NextResponse.json({
-        valid: false,
-        reason: "License not found",
-      });
+      await logValidation({ licenseKey: key, domain, product: product || null, result: "invalid", reason: "License not found", ip });
+      return NextResponse.json({ valid: false, reason: "License not found" });
     }
 
     // Check status
     if (license.status !== "active") {
-      console.log("[VALIDATE] ❌ License not active, status:", license.status);
-      await logValidation({
-        licenseKey: key,
-        domain,
-        product: product || null,
-        result: "invalid",
-        reason: `License status: ${license.status}`,
-        ip,
-      });
-      return NextResponse.json({
-        valid: false,
-        reason: `License is ${license.status}`,
-      });
+      await logUsage(license.id, "validation_failed", ip, `status:${license.status}`);
+      await logValidation({ licenseKey: key, domain, product: product || null, result: "invalid", reason: `License status: ${license.status}`, ip });
+      return NextResponse.json({ valid: false, reason: `License is ${license.status}` });
     }
 
-    // Strict domain validation
+    // Domain lock logic
     const cleanedInput = cleanDomain(domain);
     const cleanedStored = cleanDomain(license.domain);
 
-    if (cleanedInput !== cleanedStored) {
-      console.log("[VALIDATE] ❌ Domain mismatch:", cleanedStored, "vs", cleanedInput);
-      await logValidation({
-        licenseKey: key,
-        domain,
-        product: product || null,
-        result: "invalid",
-        reason: `Domain mismatch: expected ${cleanedStored}, got ${cleanedInput}`,
-        ip,
+    if (!license.domainLocked && cleanedStored === "" && cleanedInput !== "") {
+      // First validation: lock domain
+      await prisma.license.update({
+        where: { id: license.id },
+        data: { domain: cleanedInput, domainLocked: true },
       });
-      return NextResponse.json({
-        valid: false,
-        reason: "Domain mismatch. This license is bound to a different domain.",
-      });
+      console.log("[VALIDATE] 🔒 Domain locked to:", cleanedInput);
+    } else if (license.domainLocked || cleanedStored !== "") {
+      // Subsequent validations: enforce match
+      const compareDomain = cleanedStored || cleanedInput;
+      if (cleanedInput !== compareDomain) {
+        await logUsage(license.id, "domain_mismatch", ip, `expected:${compareDomain},got:${cleanedInput}`);
+        await logValidation({ licenseKey: key, domain, product: product || null, result: "invalid", reason: `Domain mismatch: expected ${compareDomain}`, ip });
+        return NextResponse.json({ valid: false, reason: "Domain mismatch. This license is bound to a different domain." });
+      }
     }
 
     // Expiration check
     if (new Date() > license.expiresAt) {
-      console.log("[VALIDATE] ❌ License expired:", license.expiresAt);
-      // Auto-update status to expired
-      await prisma.license.update({
-        where: { id: license.id },
-        data: { status: "expired" },
-      });
-      await logValidation({
-        licenseKey: key,
-        domain,
-        product: product || null,
-        result: "expired",
-        reason: `License expired on ${license.expiresAt.toISOString()}`,
-        ip,
-      });
-      return NextResponse.json({
-        valid: false,
-        reason: "License has expired",
-      });
+      await prisma.license.update({ where: { id: license.id }, data: { status: "expired" } });
+      await logUsage(license.id, "validation_expired", ip);
+      await logValidation({ licenseKey: key, domain, product: product || null, result: "expired", reason: "License expired", ip });
+      return NextResponse.json({ valid: false, reason: "License has expired" });
     }
 
-    // Product compatibility check
+    // Product compatibility
     if (product && license.product) {
       if (license.product.code !== product.toUpperCase()) {
-        console.log("[VALIDATE] ❌ Product mismatch:", license.product.code, "vs", product);
-        await logValidation({
-          licenseKey: key,
-          domain,
-          product,
-          result: "invalid",
-          reason: `Product mismatch: license is for ${license.product.code}, requested ${product}`,
-          ip,
-        });
-        return NextResponse.json({
-          valid: false,
-          reason: `License is not valid for product: ${product}. This license is for: ${license.product.code}`,
-        });
+        await logUsage(license.id, "product_mismatch", ip, `expected:${license.product.code},got:${product}`);
+        await logValidation({ licenseKey: key, domain, product, result: "invalid", reason: `Product mismatch`, ip });
+        return NextResponse.json({ valid: false, reason: `License is for ${license.product.code}, not ${product}` });
       }
     }
 
@@ -179,28 +123,18 @@ export async function POST(request: NextRequest) {
     const elapsed = Date.now() - startTime;
     console.log(`[VALIDATE] ✅ License valid (${elapsed}ms)`);
 
-    await logValidation({
-      licenseKey: key,
-      domain,
-      product: product || null,
-      result: "valid",
-      reason: null,
-      ip,
-    });
+    await logUsage(license.id, "validation_success", ip);
+    await logValidation({ licenseKey: key, domain, product: product || null, result: "valid", reason: null, ip });
 
     return NextResponse.json({
       valid: true,
-      license: {
-        plan: license.plan,
-        product: license.product?.code || null,
-        expiresAt: license.expiresAt.toISOString(),
-      },
+      features: license.features.length > 0 ? license.features : undefined,
+      plan: license.plan,
+      expiresAt: license.expiresAt.toISOString(),
+      product: license.product?.code || null,
     });
   } catch (err) {
     console.error("[VALIDATE] ❌ Server error:", err);
-    return NextResponse.json(
-      { valid: false, reason: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ valid: false, reason: "Internal server error" }, { status: 500 });
   }
 }

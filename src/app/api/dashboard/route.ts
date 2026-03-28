@@ -9,7 +9,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations] =
+    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions] =
       await Promise.all([
         prisma.license.count(),
         prisma.license.count({ where: { status: "active" } }),
@@ -20,6 +20,8 @@ export async function GET() {
           take: 5,
         }),
         prisma.validationLog.count(),
+        prisma.subscription.count(),
+        prisma.subscription.count({ where: { status: "active" } }),
       ]);
 
     return NextResponse.json({
@@ -28,6 +30,8 @@ export async function GET() {
       expiredLicenses,
       recentLicenses,
       totalValidations,
+      totalSubscriptions,
+      activeSubscriptions,
     });
   } catch (err) {
     console.error("[DASHBOARD] Error:", err);

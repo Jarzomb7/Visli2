@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { generateLicenseKey, getExpirationDate } from "@/lib/license";
+import { getFeaturesForPlan } from "@/lib/stripe";
 
 export async function GET(request: NextRequest) {
   try {
@@ -87,7 +88,9 @@ export async function POST(request: NextRequest) {
         key: generateLicenseKey(),
         domain: cleanDomain,
         plan: licensePlan,
+        features: getFeaturesForPlan(licensePlan),
         status: "active",
+        domainLocked: true,
         expiresAt: getExpirationDate(validDuration),
         productId: productId || null,
       },

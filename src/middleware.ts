@@ -25,7 +25,14 @@ export async function middleware(request: NextRequest) {
 
   try {
     const { payload } = await jwtVerify(token, getJwtSecret());
-    const role = (payload as { role?: string }).role || "client";
+    const role = (payload as { role?: string }).role;
+
+    // Force re-login if token was created before role system existed
+    if (!role) {
+      const response = NextResponse.redirect(new URL("/login", request.url));
+      response.cookies.set("visli_token", "", { maxAge: 0, path: "/" });
+      return response;
+    }
 
     // Block clients from admin panel
     if (isAdminPath && role !== "admin") {
@@ -34,7 +41,9 @@ export async function middleware(request: NextRequest) {
 
     return NextResponse.next();
   } catch {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const response = NextResponse.redirect(new URL("/login", request.url));
+    response.cookies.set("visli_token", "", { maxAge: 0, path: "/" });
+    return response;
   }
 }
 

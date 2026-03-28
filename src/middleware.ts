@@ -9,7 +9,7 @@ function getJwtSecret() {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const protectedPaths = ["/dashboard", "/licenses", "/clients", "/subscriptions"];
+  const protectedPaths = ["/dashboard", "/licenses", "/clients", "/subscriptions", "/features"];
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
   if (!isProtected) return NextResponse.next();
@@ -31,5 +31,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/licenses/:path*", "/clients/:path*", "/subscriptions/:path*"],
+  matcher: ["/dashboard/:path*", "/licenses/:path*", "/clients/:path*", "/subscriptions/:path*", "/features/:path*"],
 };

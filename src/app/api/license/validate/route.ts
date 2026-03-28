@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getFeaturesForLicense } from "@/lib/features";
 
 function cleanDomain(raw: string): string {
   return raw
@@ -119,16 +120,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // All checks passed
+    // All checks passed - resolve features from DB
+    const resolvedFeatures = await getFeaturesForLicense(license.id);
     const elapsed = Date.now() - startTime;
-    console.log(`[VALIDATE] ✅ License valid (${elapsed}ms)`);
+    console.log(`[VALIDATE] ✅ License valid (${elapsed}ms), features: ${resolvedFeatures.join(",")}`);
 
     await logUsage(license.id, "validation_success", ip);
     await logValidation({ licenseKey: key, domain, product: product || null, result: "valid", reason: null, ip });
 
     return NextResponse.json({
       valid: true,
-      features: license.features.length > 0 ? license.features : undefined,
+      features: resolvedFeatures,
       plan: license.plan,
       expiresAt: license.expiresAt.toISOString(),
       product: license.product?.code || null,

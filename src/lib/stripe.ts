@@ -1,11 +1,13 @@
 import Stripe from "stripe";
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  apiVersion: "2024-11-20.acacia",
+  typescript: true,
 });
 
 export const PLAN_FEATURES: Record<string, string[]> = {
-  basic: ["booking"],
-  pro: ["booking", "chatbot", "analytics"],
+  basic: ["calendar", "payments"],
+  pro: ["calendar", "sms", "payments", "ai_responses", "analytics", "multi_staff", "custom_branding", "api_access", "priority_support"],
 };
 
 export function getFeaturesForPlan(plan: string): string[] {

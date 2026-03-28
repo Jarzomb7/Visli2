@@ -86,3 +86,27 @@ model UsageLog {
   @@index([licenseId])
   @@map("usage_logs")
 }
+
+model Feature {
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  name         String
+  description  String?
+  category     String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  planFeatures PlanFeature[]
+
+  @@map("features")
+}
+
+model PlanFeature {
+  id        Int     @id @default(autoincrement())
+  plan      String
+  product   String?
+  featureId Int     @map("feature_id")
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([plan, featureId, product])
+  @@index([plan])
+  @@map("plan_features")
+}

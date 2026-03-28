@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { createToken, setSessionCookie, ensureAdminExists, ensureProductsExist } from "@/lib/auth";
+import { createToken, setSessionCookie, ensureAdminExists, ensureProductsExist, ensureFeaturesExist } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   console.log("[LOGIN] ===== Login attempt =====");
@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
   try {
     await ensureAdminExists();
     await ensureProductsExist();
+    await ensureFeaturesExist();
 
     let body: { email?: string; password?: string };
     try {

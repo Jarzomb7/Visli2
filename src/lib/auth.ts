@@ -121,3 +121,6 @@ export async function ensureProductsExist(): Promise<void> {
     console.error("[SEED] Auto-seed products error (non-fatal):", err);
   }
 }
+
+// Re-export for convenient access in login flow
+export { ensureFeaturesExist } from "./features";

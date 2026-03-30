@@ -9,7 +9,7 @@ export async function GET() {
     payment_method_types: ["card"],
     line_items: [
       {
-        price: "TU_WKLEJ_PRICE_ID",
+        price: "price_1TGdtTD7jl953OCG2UpfGbmL",
         quantity: 1,
       },
     ],

@@ -9,11 +9,12 @@ const GROUP_META: Record<string, { title: string; desc: string; icon: string; co
   stripe: { title: "Stripe", desc: "Payment processing configuration", icon: "💳", color: "from-violet-500/20 to-violet-600/10" },
   google: { title: "Google", desc: "Google services integration", icon: "🔍", color: "from-red-500/20 to-red-600/10" },
   app: { title: "App", desc: "Application URLs and identity", icon: "🚀", color: "from-cyan-500/20 to-cyan-600/10" },
+  email: { title: "Email", desc: "SMTP email configuration", icon: "📧", color: "from-pink-500/20 to-pink-600/10" },
   analytics: { title: "Analytics", desc: "Tracking and reporting", icon: "📊", color: "from-amber-500/20 to-amber-600/10" },
   sms: { title: "SMS", desc: "SMS notifications configuration", icon: "💬", color: "from-emerald-500/20 to-emerald-600/10" },
 };
 
-const GROUP_ORDER = ["stripe", "google", "app", "analytics", "sms"];
+const GROUP_ORDER = ["stripe", "google", "app", "email", "analytics", "sms"];
 
 export default function SettingsPage() {
   const [schema, setSchema] = useState<SchemaItem[]>([]);

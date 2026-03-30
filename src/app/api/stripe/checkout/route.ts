@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, getPriceIdAsync } from "@/lib/stripe";
+import { getStripe, getPriceIdAsync, isValidStripePriceId } from "@/lib/stripe";
 import { getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -24,14 +24,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get and validate price ID — rejects placeholders like "TU_WKLEJ_PRICE_ID"
     const priceId = await getPriceIdAsync(productCode, plan);
     if (!priceId) {
-      console.log("[CHECKOUT] ❌ No price configured for:", productCode, plan);
+      const settingKey = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
+      console.error("[CHECKOUT] ❌ No valid price_id for:", settingKey);
       return NextResponse.json(
-        { error: `No Stripe price configured for ${productCode} ${plan}` },
+        {
+          error: `No valid Stripe price configured for ${productCode} / ${plan}. Go to Settings → Stripe and set a real price_id (starts with "price_") for ${settingKey}.`,
+        },
         { status: 400 }
       );
     }
+
+    // Double-safety: never send non-price_ values to Stripe
+    if (!isValidStripePriceId(priceId)) {
+      console.error("[CHECKOUT] ❌ Price ID failed final validation:", priceId);
+      return NextResponse.json(
+        { error: `Invalid price format: "${priceId}". Must be a Stripe price ID starting with "price_".` },
+        { status: 400 }
+      );
+    }
+
+    console.log("[CHECKOUT] Using price_id:", priceId, "for", productCode, plan);
 
     const cleanDomain = domain
       ? domain.toLowerCase().trim()
@@ -56,7 +71,7 @@ export async function POST(request: NextRequest) {
       cancel_url: `${appUrl}/checkout/cancel`,
     });
 
-    console.log("[CHECKOUT] ✅ Session created:", session.id);
+    console.log("[CHECKOUT] ✅ Session created:", session.id, "url:", session.url);
     return NextResponse.json({ url: session.url, sessionId: session.id });
   } catch (err) {
     console.error("[CHECKOUT] ❌ Error:", err);

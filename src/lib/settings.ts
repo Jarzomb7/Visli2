@@ -87,6 +87,7 @@ export const SENSITIVE_KEYS = [
   "STRIPE_SECRET_KEY",
   "STRIPE_WEBHOOK_SECRET",
   "SMS_API_KEY",
+  "SMTP_PASS",
 ];
 
 export function maskValue(key: string, value: string): string {
@@ -114,4 +115,9 @@ export const SETTINGS_SCHEMA = [
   { group: "sms", key: "SMS_PROVIDER", label: "SMS Provider", placeholder: "twilio / vonage / plivo" },
   { group: "sms", key: "SMS_API_KEY", label: "SMS API Key", placeholder: "..." },
   { group: "sms", key: "SMS_FROM_NUMBER", label: "SMS From Number", placeholder: "+1..." },
+  { group: "email", key: "SMTP_HOST", label: "SMTP Host", placeholder: "smtp.gmail.com" },
+  { group: "email", key: "SMTP_PORT", label: "SMTP Port", placeholder: "587" },
+  { group: "email", key: "SMTP_USER", label: "SMTP Username", placeholder: "user@gmail.com" },
+  { group: "email", key: "SMTP_PASS", label: "SMTP Password", placeholder: "app-password" },
+  { group: "email", key: "SMTP_FROM", label: "From Address", placeholder: "noreply@yourdomain.com" },
 ];

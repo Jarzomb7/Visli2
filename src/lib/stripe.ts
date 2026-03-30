@@ -31,11 +31,31 @@ export function getFeaturesForPlan(plan: string): string[] {
   return PLAN_FEATURES[plan.toLowerCase()] || PLAN_FEATURES.basic;
 }
 
-/** Async — checks DB settings first, then env */
+/**
+ * Validate that a string looks like a real Stripe price ID.
+ * Real Stripe price IDs always start with "price_".
+ * This prevents placeholder values like "TU_WKLEJ_PRICE_ID" from reaching Stripe.
+ */
+export function isValidStripePriceId(val: string): boolean {
+  return typeof val === "string" && val.startsWith("price_") && val.length > 10;
+}
+
+/** Async — checks DB settings first, then env. Validates format before returning. */
 export async function getPriceIdAsync(productCode: string, plan: string): Promise<string | null> {
   const key = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
   const val = await getSetting(key);
-  return val || null;
+
+  if (!val) {
+    console.warn("[STRIPE] No price ID configured for:", key);
+    return null;
+  }
+
+  if (!isValidStripePriceId(val)) {
+    console.error(`[STRIPE] ❌ Invalid price ID for ${key}: "${val}" — must start with "price_". Check Settings → Stripe.`);
+    return null;
+  }
+
+  return val;
 }
 
 const PRICE_ENV_MAP = [

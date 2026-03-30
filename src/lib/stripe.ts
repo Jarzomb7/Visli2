@@ -2,7 +2,6 @@ import Stripe from "stripe";
 import { getSetting } from "./settings";
 import { prisma } from "./prisma";
 
-// Global singleton (survives Vercel warm starts)
 const globalForStripe = globalThis as unknown as {
   _stripeClient: Stripe | undefined;
   _stripeKey: string | undefined;
@@ -15,7 +14,6 @@ export async function getStripe(): Promise<Stripe> {
   if (globalForStripe._stripeClient && globalForStripe._stripeKey === key) {
     return globalForStripe._stripeClient;
   }
-
   globalForStripe._stripeClient = new Stripe(key, { typescript: true });
   globalForStripe._stripeKey = key;
   return globalForStripe._stripeClient;

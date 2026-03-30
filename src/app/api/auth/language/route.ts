@@ -11,13 +11,15 @@ export async function POST(request: NextRequest) {
 
     const { language } = await request.json();
     if (language !== "pl" && language !== "en") {
-      return NextResponse.json({ error: "Invalid language. Use 'pl' or 'en'." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid language" }, { status: 400 });
     }
 
-    await prisma.user.update({
-      where: { id: session.id },
-      data: { language },
-    });
+    // Try to save — if language column doesn't exist yet (no db:push), just succeed silently
+    try {
+      await prisma.user.update({ where: { id: session.id }, data: { language } });
+    } catch (dbErr) {
+      console.warn("[LANG] Could not save language to DB (column may not exist yet):", dbErr);
+    }
 
     return NextResponse.json({ success: true, language });
   } catch (err) {

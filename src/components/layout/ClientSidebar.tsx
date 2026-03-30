@@ -3,30 +3,32 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-
-const nav = [
-  {
-    label: "Dashboard", href: "/client/dashboard",
-    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>,
-  },
-  {
-    label: "Subscriptions", href: "/client/subscriptions",
-    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>,
-  },
-  {
-    label: "Licenses", href: "/client/licenses",
-    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>,
-  },
-  {
-    label: "Billing", href: "/client/billing",
-    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
-  },
-];
+import { useTranslation } from "@/lib/useTranslation";
 
 export default function ClientSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const { t, lang, setLang } = useTranslation();
+
+  const nav = [
+    {
+      label: t("dashboard"), href: "/client/dashboard",
+      icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>,
+    },
+    {
+      label: t("subscriptions"), href: "/client/subscriptions",
+      icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>,
+    },
+    {
+      label: t("licenses"), href: "/client/licenses",
+      icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>,
+    },
+    {
+      label: t("billing"), href: "/client/billing",
+      icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+    },
+  ];
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -45,7 +47,7 @@ export default function ClientSidebar() {
           </div>
           <div>
             <h1 className="font-display text-lg font-bold tracking-tight text-white">VISLI</h1>
-            <p className="text-[11px] font-medium tracking-wider text-white/30 uppercase">Client Panel</p>
+            <p className="text-[11px] font-medium tracking-wider text-white/30 uppercase">{t("client_panel")}</p>
           </div>
         </div>
       </div>
@@ -61,10 +63,22 @@ export default function ClientSidebar() {
           </Link>
         ))}
       </nav>
+
+      {/* Language toggle */}
+      <div className="px-4 py-3 border-t border-white/[0.05]">
+        <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-3 py-2">
+          <span className="text-[11px] text-white/30 uppercase tracking-wider">Lang</span>
+          <div className="flex gap-1">
+            <button onClick={() => setLang("pl")} className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${lang === "pl" ? "bg-[#3b5eee]/20 text-[#5f83f4]" : "text-white/30 hover:text-white/50"}`}>PL</button>
+            <button onClick={() => setLang("en")} className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${lang === "en" ? "bg-[#3b5eee]/20 text-[#5f83f4]" : "text-white/30 hover:text-white/50"}`}>EN</button>
+          </div>
+        </div>
+      </div>
+
       <div className="p-4 border-t border-white/[0.05]">
         <button onClick={handleLogout} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white/30 hover:bg-white/[0.04] hover:text-white/60 transition-all">
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>
-          Sign Out
+          {t("logout")}
         </button>
       </div>
     </>

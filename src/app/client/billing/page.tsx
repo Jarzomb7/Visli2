@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "@/lib/useTranslation";
 
 interface Addon { id: number; type: string; amount: number; status: string; meta: string | null; createdAt: string; }
 
@@ -10,6 +11,7 @@ const addonTypes = [
 ];
 
 export default function ClientBillingPage() {
+  const { t } = useTranslation();
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -28,7 +30,7 @@ export default function ClientBillingPage() {
       const data = await res.json();
       if (data.url) { window.location.href = data.url; }
       else { alert(data.error || "Could not open billing portal"); setPortalLoading(false); }
-    } catch { alert("Network error"); setPortalLoading(false); }
+    } catch { alert(t("network_error")); setPortalLoading(false); }
   };
 
   const buyAddon = async (type: string) => {
@@ -37,15 +39,15 @@ export default function ClientBillingPage() {
       const res = await fetch("/api/client/addons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) });
       const data = await res.json();
       if (res.ok) { loadAddons(); } else { alert(data.error || "Failed"); }
-    } catch { alert("Network error"); }
+    } catch { alert(t("network_error")); }
     finally { setBuyingType(null); }
   };
 
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing</h1>
-        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, and addons</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white">{t("billing_title")}</h1>
+        <p className="mt-1 text-sm text-white/40">{t("billing_desc")}</p>
       </div>
 
       {/* Subscription Management */}
@@ -54,8 +56,8 @@ export default function ClientBillingPage() {
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-600/10 text-xl">💳</div>
             <div className="flex-1">
-              <h2 className="font-display text-base font-semibold text-white">Subscription & Payments</h2>
-              <p className="mt-1 text-sm text-white/40 leading-relaxed">View invoices, update your payment method, change your plan, or cancel your subscription — all in one place.</p>
+              <h2 className="font-display text-base font-semibold text-white">{t("stripe_portal")}</h2>
+              <p className="mt-1 text-sm text-white/40 leading-relaxed">{t("stripe_portal_desc")}</p>
               <div className="mt-4 flex items-center gap-3">
                 <button onClick={openPortal} disabled={portalLoading} className="btn-primary">
                   {portalLoading ? (
@@ -63,11 +65,10 @@ export default function ClientBillingPage() {
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                      Manage Subscription
+                      {t("manage_payment")}
                     </>
                   )}
                 </button>
-                <span className="text-[11px] text-white/20">Opens secure Stripe billing portal</span>
               </div>
             </div>
           </div>
@@ -75,7 +76,7 @@ export default function ClientBillingPage() {
       </div>
 
       {/* Addons */}
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Add-ons</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-4">{t("add_ons")}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {addonTypes.map((a) => (
           <div key={a.type} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">
@@ -86,7 +87,7 @@ export default function ClientBillingPage() {
                 <p className="mt-1 text-xs text-white/40">{a.desc}</p>
               </div>
               <button onClick={() => buyAddon(a.type)} disabled={buyingType === a.type} className="btn-ghost px-4 py-2 text-xs">
-                {buyingType === a.type ? "Adding..." : "Add"}
+                {buyingType === a.type ? t("adding") : t("add")}
               </button>
             </div>
           </div>
@@ -94,14 +95,14 @@ export default function ClientBillingPage() {
       </div>
 
       {/* Purchased addons */}
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Your Add-ons</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-4">{t("your_addons")}</h2>
       <div className="glass-card overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-white/[0.05]">
               <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Type</th>
               <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Amount</th>
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Status</th>
+              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">{t("status")}</th>
               <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Date</th>
             </tr>
           </thead>
@@ -109,7 +110,7 @@ export default function ClientBillingPage() {
             {loading ? [1,2].map((i) => (
               <tr key={i} className="border-b border-white/[0.03]">{[1,2,3,4].map((j) => <td key={j} className="px-6 py-4"><div className="h-4 w-16 rounded bg-white/[0.04] animate-pulse" /></td>)}</tr>
             )) : addons.length === 0 ? (
-              <tr><td colSpan={4} className="px-6 py-12 text-center text-sm text-white/30">No add-ons purchased yet.</td></tr>
+              <tr><td colSpan={4} className="px-6 py-12 text-center text-sm text-white/30">{t("no_addons")}</td></tr>
             ) : addons.map((a) => (
               <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                 <td className="px-6 py-4 text-sm text-white/70">{a.meta || a.type}</td>

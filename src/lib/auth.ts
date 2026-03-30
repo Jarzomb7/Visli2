@@ -49,7 +49,7 @@ export function clearSessionCookie() {
   });
 }
 
-export async function getSession(): Promise<{ id: number; email: string; role: string } | null> {
+export async function getSession(): Promise<{ id: number; email: string; role: string; language: string } | null> {
   try {
     const cookieStore = cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
@@ -60,7 +60,7 @@ export async function getSession(): Promise<{ id: number; email: string; role: s
 
     const user = await prisma.user.findUnique({
       where: { id: parseInt(payload.sub) },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, language: true },
     });
 
     if (!user) return null;

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
 import { generateLicenseKey, getExpirationDate } from "@/lib/license";
-import { getFeaturesForPlan } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -77,7 +76,6 @@ export async function POST(request: NextRequest) {
     }
 
     const cleanDomain = domain.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/:\d+$/, "").replace(/\/$/, "");
-    const licensePlan = plan === "pro" ? "pro" : "basic";
     const validDuration = ["1m", "3m", "6m", "12m"].includes(duration || "") ? duration! : "1m";
 
     // Validate productId if provided
@@ -92,8 +90,8 @@ export async function POST(request: NextRequest) {
       data: {
         key: generateLicenseKey(),
         domain: cleanDomain,
-        plan: licensePlan,
-        features: getFeaturesForPlan(licensePlan),
+        plan: validDuration,
+        features: [],
         status: "active",
         domainLocked: true,
         expiresAt: getExpirationDate(validDuration),

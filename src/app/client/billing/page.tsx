@@ -48,18 +48,29 @@ export default function ClientBillingPage() {
         <p className="mt-1 text-sm text-white/40">Manage payments, invoices, and addons</p>
       </div>
 
-      {/* Stripe Portal */}
-      <div className="glass-card p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-display text-base font-semibold text-white">Stripe Billing Portal</h2>
-            <p className="mt-1 text-sm text-white/40">Update payment method, view invoices, manage subscription</p>
+      {/* Subscription Management */}
+      <div className="glass-card overflow-hidden mb-6">
+        <div className="p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-600/10 text-xl">💳</div>
+            <div className="flex-1">
+              <h2 className="font-display text-base font-semibold text-white">Subscription & Payments</h2>
+              <p className="mt-1 text-sm text-white/40 leading-relaxed">View invoices, update your payment method, change your plan, or cancel your subscription — all in one place.</p>
+              <div className="mt-4 flex items-center gap-3">
+                <button onClick={openPortal} disabled={portalLoading} className="btn-primary">
+                  {portalLoading ? (
+                    <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                      Manage Subscription
+                    </>
+                  )}
+                </button>
+                <span className="text-[11px] text-white/20">Opens secure Stripe billing portal</span>
+              </div>
+            </div>
           </div>
-          <button onClick={openPortal} disabled={portalLoading} className="btn-primary">
-            {portalLoading ? (
-              <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-            ) : "Open Portal"}
-          </button>
         </div>
       </div>
 

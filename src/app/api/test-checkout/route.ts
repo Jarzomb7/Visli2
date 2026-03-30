@@ -1,57 +1,39 @@
 import { NextResponse } from "next/server";
-import { getStripe, getPriceIdAsync, isValidStripePriceId } from "@/lib/stripe";
+import { getStripe, isValidStripePriceId } from "@/lib/stripe";
 import { getSetting } from "@/lib/settings";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Quick test checkout endpoint.
- * Usage: GET /api/test-checkout?product=BOOKING_SYSTEM&plan=basic
- * Reads price IDs from DB settings — never uses hardcoded values.
- */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const productCode = searchParams.get("product") || "BOOKING_SYSTEM";
-    const plan = searchParams.get("plan") || "basic";
+    const productCode = searchParams.get("product") || "";
 
-    const priceId = await getPriceIdAsync(productCode, plan);
-    const settingKey = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
+    if (!productCode) {
+      const products = await prisma.product.findMany({ where: { active: true, stripePriceId: { not: null } }, select: { code: true, name: true } });
+      return NextResponse.json({ error: "Provide ?product=CODE", availableProducts: products }, { status: 400 });
+    }
 
-    if (!priceId || !isValidStripePriceId(priceId)) {
-      return NextResponse.json(
-        {
-          error: `No valid Stripe price configured for ${productCode} / ${plan}`,
-          hint: `Go to Settings → Stripe and set a real Stripe price_id (starts with "price_") for key: ${settingKey}`,
-          currentValue: priceId || "(empty)",
-        },
-        { status: 400 }
-      );
+    const product = await prisma.product.findUnique({ where: { code: productCode.toUpperCase() } });
+    if (!product?.stripePriceId || !isValidStripePriceId(product.stripePriceId)) {
+      return NextResponse.json({ error: `No valid price for product: ${productCode}` }, { status: 400 });
     }
 
     const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
     const stripe = await getStripe();
 
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: product.paymentType === "subscription" ? "subscription" : "payment",
       payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
-      metadata: {
-        productCode: productCode.toUpperCase(),
-        plan: plan.toLowerCase(),
-        domain: "PENDING",
-      },
+      line_items: [{ price: product.stripePriceId, quantity: 1 }],
+      metadata: { productCode: product.code, plan: product.paymentType, domain: "PENDING" },
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/checkout/cancel`,
     });
 
-    if (!session.url) {
-      return NextResponse.json({ error: "Failed to create checkout session" }, { status: 500 });
-    }
-
-    return NextResponse.redirect(session.url);
+    return NextResponse.redirect(session.url!);
   } catch (err) {
-    console.error("[TEST-CHECKOUT] Error:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }

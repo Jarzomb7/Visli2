@@ -13,7 +13,7 @@ interface Product {
 export default function CreateLicensePage() {
   const router = useRouter();
   const [domain, setDomain] = useState("");
-  const [plan, setPlan] = useState<"basic" | "pro">("basic");
+  const [plan, setPlan] = useState("1m");
   const [duration, setDuration] = useState<"1m" | "3m" | "6m" | "12m">("1m");
   const [productId, setProductId] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -106,27 +106,14 @@ export default function CreateLicensePage() {
           </div>
 
           <div>
-            <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-white/30">Plan *</label>
-            <div className="grid grid-cols-2 gap-3">
-              {(["basic", "pro"] as const).map((p) => (
-                <button key={p} type="button" onClick={() => setPlan(p)}
-                  className={`rounded-xl border p-4 text-left transition-all ${plan === p ? "border-[#3b5eee]/50 bg-[#3b5eee]/10" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]"}`}>
-                  <p className={`text-sm font-semibold uppercase ${plan === p ? "text-[#5f83f4]" : "text-white/50"}`}>{p}</p>
-                  <p className="mt-0.5 text-[11px] text-white/25">{p === "basic" ? "Core features" : "All features"}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
             <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-white/30">Duration *</label>
             <div className="grid grid-cols-4 gap-2">
               {(["1m", "3m", "6m", "12m"] as const).map((d) => (
-                <button key={d} type="button" onClick={() => setDuration(d)}
-                  className={`rounded-xl border px-3 py-2.5 text-center text-sm font-medium transition-all ${
-                    duration === d ? "border-[#3b5eee]/50 bg-[#3b5eee]/10 text-[#5f83f4]" : "border-white/[0.06] bg-white/[0.02] text-white/40 hover:border-white/[0.12]"
+                <button key={d} type="button" onClick={() => { setDuration(d); setPlan(d); }}
+                  className={`rounded-xl border px-3 py-2.5 text-center transition-all ${
+                    duration === d ? "border-[#3b5eee]/50 bg-[#3b5eee]/10" : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.12]"
                   }`}>
-                  {d === "12m" ? "1 Yr" : d.replace("m", " Mo")}
+                  <p className={`text-sm font-semibold ${duration === d ? "text-[#5f83f4]" : "text-white/50"}`}>{d === "1m" ? "1 Month" : d === "3m" ? "3 Months" : d === "6m" ? "6 Months" : "12 Months"}</p>
                 </button>
               ))}
             </div>

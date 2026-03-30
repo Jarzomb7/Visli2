@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
+import { getRevenueStats } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions, totalFeatures, totalClients] =
+    const [totalLicenses, activeLicenses, expiredLicenses, recentLicenses, totalValidations, totalSubscriptions, activeSubscriptions, totalClients, revenue] =
       await Promise.all([
         prisma.license.count(),
         prisma.license.count({ where: { status: "active" } }),
@@ -24,13 +25,9 @@ export async function GET() {
         prisma.validationLog.count(),
         prisma.subscription.count(),
         prisma.subscription.count({ where: { status: "active" } }),
-        prisma.feature.count(),
         prisma.user.count({ where: { role: "client" } }),
+        getRevenueStats(),
       ]);
-
-    // Mock revenue: active subs * avg price
-    const monthlyRevenue = activeSubscriptions * 29;
-    const annualRevenue = monthlyRevenue * 12;
 
     return NextResponse.json({
       totalLicenses,
@@ -40,10 +37,9 @@ export async function GET() {
       totalValidations,
       totalSubscriptions,
       activeSubscriptions,
-      totalFeatures,
       totalClients,
-      monthlyRevenue,
-      annualRevenue,
+      monthlyRevenue: revenue.monthlyRevenue,
+      annualRevenue: revenue.totalRevenue,
     });
   } catch (err) {
     console.error("[DASHBOARD] Error:", err);

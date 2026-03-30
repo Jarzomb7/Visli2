@@ -8,41 +8,38 @@ interface EmailPayload {
 }
 
 /**
- * Send email using nodemailer with SMTP settings from DB/env.
- * Falls back gracefully — logs instead of crashing if SMTP is not configured.
+ * Send email using Resend API.
+ * Falls back gracefully — logs instead of crashing if RESEND_API_KEY is not configured.
  */
 export async function sendEmail(payload: EmailPayload): Promise<boolean> {
   try {
-    const host = await getSetting("SMTP_HOST");
-    const port = await getSetting("SMTP_PORT", "587");
-    const user = await getSetting("SMTP_USER");
-    const pass = await getSetting("SMTP_PASS");
-    const from = await getSetting("SMTP_FROM", user || "noreply@visli.io");
+    const apiKey = await getSetting("RESEND_API_KEY", process.env.RESEND_API_KEY || "");
+    const from = await getSetting("EMAIL_FROM", process.env.EMAIL_FROM || "VISLI <onboarding@resend.dev>");
 
-    if (!host || !user || !pass) {
-      console.warn("[EMAIL] ⚠️ SMTP not configured — skipping email to:", payload.to);
+    if (!apiKey) {
+      console.warn("[EMAIL] ⚠️ RESEND_API_KEY not configured — skipping email to:", payload.to);
       console.log("[EMAIL] Subject:", payload.subject);
+      console.log("[EMAIL] Would have sent to:", payload.to);
       return false;
     }
 
-    const nodemailer = await import("nodemailer");
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port: parseInt(port, 10),
-      secure: parseInt(port, 10) === 465,
-      auth: { user, pass },
-    });
-
-    await transporter.sendMail({
+    const { data, error } = await resend.emails.send({
       from,
-      to: payload.to,
+      to: [payload.to],
       subject: payload.subject,
       html: payload.html,
       text: payload.text || payload.html.replace(/<[^>]+>/g, ""),
     });
 
-    console.log("[EMAIL] ✅ Email sent to:", payload.to);
+    if (error) {
+      console.error("[EMAIL] ❌ Resend error:", error);
+      return false;
+    }
+
+    console.log("[EMAIL] ✅ Email sent to:", payload.to, "id:", data?.id);
     return true;
   } catch (err) {
     console.error("[EMAIL] ❌ Failed to send email to:", payload.to, err);

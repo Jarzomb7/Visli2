@@ -7,7 +7,9 @@ let _stripe: Stripe | null = null;
 export async function getStripe(): Promise<Stripe> {
   if (_stripe) return _stripe;
   const key = await getSetting("STRIPE_SECRET_KEY", process.env.STRIPE_SECRET_KEY || "");
-  _stripe = new Stripe(key, { apiVersion: "2024-11-20", typescript: true });
+  _stripe = new Stripe(key, { 
+  typescript: true 
+});
   return _stripe;
 }
 

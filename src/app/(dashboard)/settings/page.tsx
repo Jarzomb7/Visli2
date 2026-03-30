@@ -7,18 +7,21 @@ interface SettingRow { id: number; key: string; value: string; displayValue: str
 
 const GROUP_META: Record<string, { title: string; desc: string; icon: string; color: string }> = {
   stripe: { title: "Stripe", desc: "Payment processing configuration", icon: "💳", color: "from-violet-500/20 to-violet-600/10" },
-  general: { title: "General", desc: "Application settings", icon: "⚙️", color: "from-blue-500/20 to-blue-600/10" },
+  google: { title: "Google", desc: "Google services integration", icon: "🔍", color: "from-red-500/20 to-red-600/10" },
+  app: { title: "App", desc: "Application URLs and identity", icon: "🚀", color: "from-cyan-500/20 to-cyan-600/10" },
   analytics: { title: "Analytics", desc: "Tracking and reporting", icon: "📊", color: "from-amber-500/20 to-amber-600/10" },
   sms: { title: "SMS", desc: "SMS notifications configuration", icon: "💬", color: "from-emerald-500/20 to-emerald-600/10" },
 };
+
+const GROUP_ORDER = ["stripe", "google", "app", "analytics", "sms"];
 
 export default function SettingsPage() {
   const [schema, setSchema] = useState<SchemaItem[]>([]);
   const [saved, setSaved] = useState<Record<string, SettingRow>>({});
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [fieldMessages, setFieldMessages] = useState<Record<string, { type: "success" | "error"; text: string }>>({});
   const [activeGroup, setActiveGroup] = useState("stripe");
 
   const load = useCallback(() => {
@@ -46,9 +49,47 @@ export default function SettingsPage() {
     setValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
+  const handleSaveField = async (item: SchemaItem) => {
+    const val = values[item.key] || "";
+    if (!val || val.includes("••••")) return;
+
+    setSavingKey(item.key);
+    setFieldMessages((prev) => {
+      const next = { ...prev };
+      delete next[item.key];
+      return next;
+    });
+
+    try {
+      const res = await fetch("/api/settings/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: item.key, value: val, group: item.group }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setFieldMessages((prev) => ({ ...prev, [item.key]: { type: "success", text: "Saved" } }));
+        load();
+      } else {
+        setFieldMessages((prev) => ({ ...prev, [item.key]: { type: "error", text: data.error || "Failed" } }));
+      }
+    } catch {
+      setFieldMessages((prev) => ({ ...prev, [item.key]: { type: "error", text: "Network error" } }));
+    } finally {
+      setSavingKey(null);
+      setTimeout(() => {
+        setFieldMessages((prev) => {
+          const next = { ...prev };
+          delete next[item.key];
+          return next;
+        });
+      }, 3000);
+    }
+  };
+
+  const handleSaveAll = async () => {
+    setSavingKey("__all__");
     try {
       const groupItems = schema.filter((s) => s.group === activeGroup);
       const entries = groupItems
@@ -63,20 +104,26 @@ export default function SettingsPage() {
 
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: "success", text: `Saved ${data.saved} settings` });
+        setFieldMessages((prev) => ({ ...prev, __all__: { type: "success", text: `Saved ${data.saved} settings` } }));
         load();
       } else {
-        setMessage({ type: "error", text: data.error || "Failed to save" });
+        setFieldMessages((prev) => ({ ...prev, __all__: { type: "error", text: data.error || "Failed" } }));
       }
     } catch {
-      setMessage({ type: "error", text: "Network error" });
+      setFieldMessages((prev) => ({ ...prev, __all__: { type: "error", text: "Network error" } }));
     } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(null), 4000);
+      setSavingKey(null);
+      setTimeout(() => {
+        setFieldMessages((prev) => {
+          const next = { ...prev };
+          delete next.__all__;
+          return next;
+        });
+      }, 4000);
     }
   };
 
-  const groups = Array.from(new Set(schema.map((s) => s.group)));
+  const groups = GROUP_ORDER.filter((g) => schema.some((s) => s.group === g));
   const activeItems = schema.filter((s) => s.group === activeGroup);
   const meta = GROUP_META[activeGroup] || { title: activeGroup, desc: "", icon: "📦", color: "from-white/10 to-white/5" };
 
@@ -136,10 +183,12 @@ export default function SettingsPage() {
             const existing = saved[item.key];
             const currentValue = values[item.key] || "";
             const isSensitive = existing?.sensitive;
+            const isSaving = savingKey === item.key;
+            const msg = fieldMessages[item.key];
 
             return (
-              <div key={item.key}>
-                <div className="flex items-center gap-2 mb-2">
+              <div key={item.key} className="rounded-xl border border-white/[0.04] bg-white/[0.015] p-4">
+                <div className="flex items-center gap-2 mb-3">
                   <label className="text-xs font-semibold uppercase tracking-wider text-white/30">
                     {item.label}
                   </label>
@@ -149,8 +198,9 @@ export default function SettingsPage() {
                   {isSensitive && (
                     <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-400">SENSITIVE</span>
                   )}
+                  <code className="ml-auto hidden sm:block shrink-0 text-[10px] text-white/15 font-mono">{item.key}</code>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <input
                     type={isSensitive ? "password" : "text"}
                     value={currentValue}
@@ -158,8 +208,24 @@ export default function SettingsPage() {
                     className="glass-input flex-1 font-mono text-xs"
                     placeholder={item.placeholder}
                   />
-                  <code className="hidden sm:block shrink-0 text-[10px] text-white/15 font-mono">{item.key}</code>
+                  <button
+                    onClick={() => handleSaveField(item)}
+                    disabled={isSaving || !currentValue || currentValue.includes("••••")}
+                    className="shrink-0 flex items-center gap-1.5 rounded-lg border border-[#3b5eee]/30 bg-[#3b5eee]/10 px-3.5 py-2 text-xs font-semibold text-[#5f83f4] transition-all hover:bg-[#3b5eee]/20 hover:border-[#3b5eee]/50 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? (
+                      <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+                    ) : (
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                    )}
+                    Save
+                  </button>
                 </div>
+                {msg && (
+                  <p className={`mt-2 text-xs font-medium ${msg.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                    {msg.text}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -169,21 +235,23 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Save button */}
-        <div className="border-t border-white/[0.05] px-6 py-4 flex items-center justify-between">
-          <div>
-            {message && (
-              <span className={`text-xs font-medium ${message.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
-                {message.text}
-              </span>
-            )}
+        {/* Save All button */}
+        {activeItems.length > 0 && (
+          <div className="border-t border-white/[0.05] px-6 py-4 flex items-center justify-between">
+            <div>
+              {fieldMessages.__all__ && (
+                <span className={`text-xs font-medium ${fieldMessages.__all__.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                  {fieldMessages.__all__.text}
+                </span>
+              )}
+            </div>
+            <button onClick={handleSaveAll} disabled={savingKey === "__all__"} className="btn-primary px-6">
+              {savingKey === "__all__" ? (
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
+              ) : "Save All Settings"}
+            </button>
           </div>
-          <button onClick={handleSave} disabled={saving} className="btn-primary px-6">
-            {saving ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-            ) : "Save Settings"}
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Info */}

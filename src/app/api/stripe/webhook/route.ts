@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { stripe, getFeaturesForPlan, resolveFromSubscription } from "@/lib/stripe";
+import { getStripe, getWebhookSecret, getFeaturesForPlan, resolveFromSubscription } from "@/lib/stripe";
 import { generateLicenseKey } from "@/lib/license";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
@@ -45,10 +45,12 @@ export async function POST(request: NextRequest) {
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(
+    const stripeClient = await getStripe();
+    const webhookSecret = await getWebhookSecret();
+    event = stripeClient.webhooks.constructEvent(
       body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET || ""
+      webhookSecret
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown";
@@ -84,7 +86,8 @@ export async function POST(request: NextRequest) {
         let stripePriceId: string | null = null;
         if (subscriptionId) {
           try {
-            const sub = await stripe.subscriptions.retrieve(subscriptionId);
+            const stripeApi = await getStripe();
+            const sub = await stripeApi.subscriptions.retrieve(subscriptionId);
             periodEnd = new Date(sub.current_period_end * 1000);
             stripePriceId = sub.items?.data?.[0]?.price?.id || null;
           } catch (e) {
@@ -153,9 +156,10 @@ export async function POST(request: NextRequest) {
         console.log("[WEBHOOK] invoice.paid for sub:", subscriptionId);
 
         try {
-          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          const stripeApi = await getStripe();
+          const sub = await stripeApi.subscriptions.retrieve(subscriptionId);
           const periodEnd = new Date(sub.current_period_end * 1000);
-          const resolved = resolveFromSubscription(sub);
+          const resolved = await resolveFromSubscription(sub);
 
           await prisma.subscription.updateMany({
             where: { stripeSubscriptionId: subscriptionId },
@@ -204,7 +208,7 @@ export async function POST(request: NextRequest) {
       case "customer.subscription.updated": {
         const sub = event.data.object as Stripe.Subscription;
         const periodEnd = new Date(sub.current_period_end * 1000);
-        const resolved = resolveFromSubscription(sub);
+        const resolved = await resolveFromSubscription(sub);
         const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000) : null;
 
         let ourStatus = "active";

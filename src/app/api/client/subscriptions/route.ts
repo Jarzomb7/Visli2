@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getClientSession } from "@/lib/auth";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +46,8 @@ export async function DELETE(request: NextRequest) {
 
     if (sub.stripeSubscriptionId) {
       try {
-        await stripe.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
+        const stripeClient = await getStripe();
+        await stripeClient.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
         console.log("[CLIENT-SUBS] ✅ Scheduled cancellation for:", sub.stripeSubscriptionId);
       } catch (err) {
         console.error("[CLIENT-SUBS] Stripe cancel error:", err);

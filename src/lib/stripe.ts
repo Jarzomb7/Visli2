@@ -99,36 +99,48 @@ export async function resolveFromSubscription(sub: Stripe.Subscription): Promise
 /**
  * Get real revenue from Stripe (amounts are in cents).
  */
-export async function getRevenueStats(): Promise<{ monthlyRevenue: number; totalRevenue: number }> {
+export async function getRevenueStats(): Promise<{
+  monthlyRevenue: number;
+  previousMonthRevenue: number;
+  totalRevenue: number;
+  renewalsRevenue: number;
+  newSubscriptionsRevenue: number;
+}> {
   try {
     const stripe = await getStripe();
-    const now = Math.floor(Date.now() / 1000);
-    const thirtyDaysAgo = now - 30 * 24 * 60 * 60;
+    const now = new Date();
+    const monthStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000);
+    const prevMonthStart = Math.floor(new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime() / 1000);
 
-    // Get recent paid invoices
-    const invoices = await stripe.invoices.list({
-      status: "paid",
-      created: { gte: thirtyDaysAgo },
-      limit: 100,
-    });
+    const invoices = await stripe.invoices.list({ status: "paid", limit: 100 });
 
-    const monthlyRevenue = invoices.data.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0) / 100;
+    let monthlyCents = 0;
+    let previousCents = 0;
+    let totalCents = 0;
+    let renewalsCents = 0;
+    let newSubsCents = 0;
 
-    // Get all-time from active subscriptions MRR
-    const subs = await stripe.subscriptions.list({ status: "active", limit: 100 });
-    const mrr = subs.data.reduce((sum, sub) => {
-      const item = sub.items?.data?.[0];
-      if (!item?.price?.unit_amount) return sum;
-      const amount = item.price.unit_amount;
-      const interval = item.price.recurring?.interval;
-      if (interval === "month") return sum + amount;
-      if (interval === "year") return sum + Math.round(amount / 12);
-      return sum + amount;
-    }, 0) / 100;
+    for (const inv of invoices.data) {
+      const amount = inv.amount_paid || 0;
+      const created = inv.created || 0;
+      totalCents += amount;
 
-    return { monthlyRevenue: monthlyRevenue || mrr, totalRevenue: mrr * 12 };
+      if (created >= monthStart) monthlyCents += amount;
+      if (created >= prevMonthStart && created < monthStart) previousCents += amount;
+
+      if (inv.billing_reason === "subscription_cycle") renewalsCents += amount;
+      if (inv.billing_reason === "subscription_create") newSubsCents += amount;
+    }
+
+    return {
+      monthlyRevenue: monthlyCents / 100,
+      previousMonthRevenue: previousCents / 100,
+      totalRevenue: totalCents / 100,
+      renewalsRevenue: renewalsCents / 100,
+      newSubscriptionsRevenue: newSubsCents / 100,
+    };
   } catch (err) {
     console.error("[STRIPE] Revenue fetch error:", err);
-    return { monthlyRevenue: 0, totalRevenue: 0 };
+    return { monthlyRevenue: 0, previousMonthRevenue: 0, totalRevenue: 0, renewalsRevenue: 0, newSubscriptionsRevenue: 0 };
   }
 }

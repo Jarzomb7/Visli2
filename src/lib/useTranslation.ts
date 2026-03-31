@@ -43,11 +43,11 @@ export function useTranslation() {
     } catch {}
   }, []);
 
-  // ✅ POPRAWIONE NA 100%
+  // ✅ FINAL FIX
   const translate = useCallback(
     (key: string, vars?: Record<string, string>) =>
-      t(lang, key, vars),
-    [lang]
+      t(key, vars),
+    []
   );
 
   return { t: translate, lang, setLang };

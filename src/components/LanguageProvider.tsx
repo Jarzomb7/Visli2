@@ -6,7 +6,7 @@ import { Lang, t as translate } from "@/lib/i18n";
 interface LangCtx {
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (key: string) => string;
+  t: (key: string, vars?: Record<string, string>) => string;
 }
 
 const LangContext = createContext<LangCtx>({
@@ -19,18 +19,28 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("pl");
 
   useEffect(() => {
-    const saved = localStorage.getItem("visli_lang") as Lang | null;
+    const saved = localStorage.getItem("visli_lang");
     if (saved === "en" || saved === "pl") setLangState(saved);
   }, []);
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     localStorage.setItem("visli_lang", l);
-    // Also save to API if logged in
     fetch("/api/auth/me", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ language: l }) }).catch(() => {});
   }, []);
 
-  const t = useCallback((key: string) => translate(lang, key), [lang]);
+  const t = useCallback(
+    (key: string, vars?: Record<string, string>) => {
+      let text = translate(lang, key);
+      if (vars) {
+        for (const [k, v] of Object.entries(vars)) {
+          text = text.replace(new RegExp(`{{${k}}}`, "g"), v);
+        }
+      }
+      return text;
+    },
+    [lang]
+  );
 
   return (
     <LangContext.Provider value={{ lang, setLang, t }}>

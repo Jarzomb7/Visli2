@@ -95,8 +95,6 @@ export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) 
   });
   console.log("[WEBHOOK] ✅ License CREATED:", license.key);
 
-  // Try to set userId (new column — safe if it doesn't exist yet)
-  try { await prisma.license.update({ where: { id: license.id }, data: { userId } }); } catch {}
 
   if (subscriptionId) {
     await prisma.subscription.upsert({
@@ -149,7 +147,6 @@ export async function handleSubscriptionCreated(sub: Stripe.Subscription) {
   const license = await prisma.license.create({
     data: { key: generateLicenseKey(), domain: "PENDING", status: "active", plan, features: [], email, domainLocked: false, stripeSubId: sub.id, expiresAt: periodEnd, productId: product.id },
   });
-  try { await prisma.license.update({ where: { id: license.id }, data: { userId } }); } catch {}
 
   await prisma.subscription.create({
     data: { email, userId, stripeCustomerId: customerId, stripeSubscriptionId: sub.id, stripePriceId: resolved?.priceId || null, status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete", plan, productCode: resolved?.productCode || null, productId: product.id, currentPeriodEnd: periodEnd, licenseId: license.id },

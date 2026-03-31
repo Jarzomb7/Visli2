@@ -188,3 +188,18 @@ model PasswordReset {
   @@index([token])
   @@map("password_resets")
 }
+
+
+model Plan {
+  id           Int      @id @default(autoincrement())
+  name         String
+  description  String?
+  priceMonthly Int      @map("price_monthly")
+  stripePriceId String  @map("stripe_price_id")
+  features     Json?
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([isActive])
+  @@map("plans")
+}

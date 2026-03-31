@@ -37,7 +37,7 @@ export async function PATCH(request: NextRequest) {
     const session = await getClientSession();
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    let body: { subscriptionId?: number; planId?: number };
+    let body: { subscriptionId: number; planId: number };
     try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid body" }, { status: 400 }); }
 
     if (!body.subscriptionId || !body.planId) {
@@ -53,11 +53,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Stripe subscription not linked" }, { status: 400 });
     }
 
-    const nextPlan = await prisma.plan.findUnique({ where: { id: body.planId } });
+    const nextPlan = await prisma.plan.findUnique({
+      where: { id: body.planId }
+    });
     if (!nextPlan || !nextPlan.isActive) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
 
-    const priceId = nextPlan.stripePriceId;
-    if (!isValidStripePriceId(priceId)) {
+    const priceId = nextPlan?.stripePriceId;
+    if (!priceId || !isValidStripePriceId(priceId)) {
       return NextResponse.json({ error: `Missing Stripe price for ${nextPlan.name}` }, { status: 400 });
     }
 

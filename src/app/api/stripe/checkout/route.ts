@@ -1,23 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getStripe, isValidStripePriceId } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { getSetting } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  console.log("[CHECKOUT] ===== Creating checkout session =====");
-
   try {
-    let body: { email?: string; productCode?: string; planId?: number; addonPackageId?: string; domain?: string; duration?: string };
+    let body: { email?: string; planId?: number; addonPackageId?: string };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { email, productCode, planId, addonPackageId, domain, duration } = body;
-
+    const { email, planId, addonPackageId } = body;
 
     if (addonPackageId) {
       const packages: Record<string, { amount: number; credits: number }> = {
@@ -48,36 +45,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ url: session.url, sessionId: session.id });
     }
 
-    if (!email) return NextResponse.json({ error: "email is required" }, { status: 400 });
-    let stripePriceId = "";
-    let code = (productCode || "").toUpperCase();
-    let planName = duration || "subscription";
-
-    if (planId) {
-      const plan = await prisma.plan.findUnique({ where: { id: planId } });
-      if (!plan || !plan.isActive) {
-        return NextResponse.json({ error: "Selected plan unavailable" }, { status: 400 });
-      }
-      stripePriceId = plan.stripePriceId;
-      code = plan.name.toUpperCase().replace(/\s+/g, "_");
-      planName = plan.name.toLowerCase();
-    } else if (code) {
-      const product = await prisma.product.findUnique({ where: { code } });
-      if (!product || !product.active || !product.stripePriceId) {
-        return NextResponse.json({ error: "Product unavailable" }, { status: 400 });
-      }
-      stripePriceId = product.stripePriceId;
-    } else {
-      return NextResponse.json({ error: "planId or productCode is required" }, { status: 400 });
+    if (!email || !planId) {
+      return NextResponse.json({ error: "email and planId are required" }, { status: 400 });
     }
 
-    if (!isValidStripePriceId(stripePriceId)) {
-      return NextResponse.json({ error: "Invalid Stripe price id" }, { status: 400 });
+    const plan = await prisma.plan.findUnique({ where: { id: planId } });
+    if (!plan || !plan.isActive) {
+      return NextResponse.json({ error: "Selected plan unavailable" }, { status: 400 });
     }
-
-    const cleanDomain = domain
-      ? domain.toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/:\d+$/, "")
-      : "PENDING";
 
     const stripeClient = await getStripe();
     const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
@@ -86,11 +61,11 @@ export async function POST(request: NextRequest) {
       mode: "subscription",
       payment_method_types: ["card"],
       customer_email: email,
-      line_items: [{ price: stripePriceId, quantity: 1 }],
+      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
       metadata: {
-        productCode: code,
-        plan: planName,
-        domain: cleanDomain,
+        productCode: plan.name.toUpperCase().replace(/\s+/g, "_"),
+        plan: plan.name.toLowerCase(),
+        domain: "PENDING",
       },
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/checkout/cancel`,

@@ -43,12 +43,11 @@ export function useTranslation() {
     } catch {}
   }, []);
 
-  // 🔥 DZIAŁAJĄCA WERSJA (bez błędów TS)
+  // ✅ POPRAWIONE NA 100%
   const translate = useCallback(
-    (key: string, vars?: Record<string, string>) => {
-      return t(key, vars);
-    },
-    []
+    (key: string, vars?: Record<string, string>) =>
+      t(lang, key, vars),
+    [lang]
   );
 
   return { t: translate, lang, setLang };

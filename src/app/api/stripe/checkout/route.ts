@@ -6,50 +6,41 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body = await req.json() as { email?: string; planId?: number; addonPackageId?: string };
     const { email, planId, addonPackageId } = body;
 
     const stripe = await getStripe();
 
-    // SMS ADDON
     if (addonPackageId) {
       const packages: Record<string, { amount: number; credits: number }> = {
         sms_100: { amount: 2000, credits: 100 },
-        sms_500: { amount: 8000, credits: 500 }
+        sms_500: { amount: 8000, credits: 500 },
       };
 
       const pkg = packages[addonPackageId];
-      if (!pkg) {
-        return NextResponse.json({ error: "Invalid package" }, { status: 400 });
-      }
+      if (!pkg) return NextResponse.json({ error: "Invalid package" }, { status: 400 });
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: "pln",
-              product_data: { name: `${pkg.credits} SMS` },
-              unit_amount: pkg.amount
-            },
-            quantity: 1
-          }
-        ],
+        line_items: [{
+          price_data: {
+            currency: "pln",
+            product_data: { name: `${pkg.credits} SMS` },
+            unit_amount: pkg.amount,
+          },
+          quantity: 1,
+        }],
         success_url: `${process.env.NEXT_PUBLIC_APP_URL}/success`,
         cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/cancel`,
-        customer_email: email
+        customer_email: email,
       });
 
       return NextResponse.json({ url: session.url });
     }
 
-    // PLAN
     if (planId) {
-      const plan = await prisma.plan.findUnique({
-        where: { id: planId }
-      });
-
+      const plan = await prisma.plan.findUnique({ where: { id: planId } });
       if (!plan || !plan.stripePriceId) {
         return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
       }
@@ -57,24 +48,18 @@ export async function POST(req: NextRequest) {
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price: plan.stripePriceId,
-            quantity: 1
-          }
-        ],
+        line_items: [{ price: plan.stripePriceId, quantity: 1 }],
         success_url: `${process.env.NEXT_PUBLIC_APP_URL}/success`,
         cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/cancel`,
-        customer_email: email
+        customer_email: email,
       });
 
       return NextResponse.json({ url: session.url });
     }
 
     return NextResponse.json({ error: "Missing data" }, { status: 400 });
-
-  } catch (e) {
-    console.error(e);
+  } catch (error) {
+    console.error(error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

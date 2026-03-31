@@ -20,18 +20,12 @@ export default function Page() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState("");
 
   useEffect(() => {
     const load = async () => {
-      const [subsData, meData] = await Promise.all([
-        fetch("/api/client/subscriptions").then((r) => r.json()),
-        fetch("/api/auth/me").then((r) => r.json()),
-      ]);
-
-      setPlans(subsData.plans || []);
-      setSubs(subsData.subscriptions || []);
-      setEmail(meData.user?.email || "");
+      const data = await fetch("/api/client/subscriptions").then((r) => r.json());
+      setPlans(data.plans || []);
+      setSubs(data.subscriptions || []);
       setLoading(false);
     };
 
@@ -41,7 +35,7 @@ export default function Page() {
   const buyPlan = async (planId: number) => {
     const res = await fetch("/api/stripe/checkout", {
       method: "POST",
-      body: JSON.stringify({ planId, email })
+      body: JSON.stringify({ planId }),
     });
 
     const data = await res.json();
@@ -55,20 +49,14 @@ export default function Page() {
   return (
     <div>
       <h1>Subskrypcja</h1>
-
-      {subs.length > 0 && (
-        <p>Aktywne subskrypcje: {subs.length}</p>
-      )}
-
+      {subs.length > 0 && <p>Aktywne subskrypcje: {subs.length}</p>}
       {plans.length === 0 && <p>Brak planów</p>}
 
       {plans.map((plan) => (
         <div key={plan.id}>
           <h2>{plan.name}</h2>
           <p>{plan.priceMonthly} zł / msc</p>
-          <button onClick={() => buyPlan(plan.id)}>
-            Kup
-          </button>
+          <button onClick={() => buyPlan(plan.id)}>Kup</button>
         </div>
       ))}
     </div>

@@ -9,6 +9,7 @@ interface SubData {
 }
 interface Invoice { id: string; date: string; amount: number; status: string; url: string | null; }
 interface Addon { id: number; type: string; amount: number; status: string; meta: string | null; createdAt: string; }
+interface AssignedLicense { id: number; key: string; domain: string; status: string; expiresAt: string; plan: string; }
 
 const addonTypes = [
   { type: "sms_pack", name: "SMS Package", desc: "500 SMS credits", icon: "💬", amount: 500 },
@@ -27,6 +28,7 @@ export default function ClientBillingPage() {
   const [sub, setSub] = useState<SubData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
+  const [assignedLicenses, setAssignedLicenses] = useState<AssignedLicense[]>([]);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
   const [buyingType, setBuyingType] = useState<string | null>(null);
@@ -39,6 +41,7 @@ export default function ClientBillingPage() {
     ]).then(([billingData, addonData]) => {
       setSub(billingData.subscription || null);
       setInvoices(billingData.invoices || []);
+      setAssignedLicenses(billingData.assignedLicenses || []);
       setAddons(addonData.addons || []);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
@@ -77,8 +80,8 @@ export default function ClientBillingPage() {
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing</h1>
-        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, and subscription</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing / Subskrypcja</h1>
+        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, licenses, and subscription</p>
       </div>
 
       {/* ━━━ Current Subscription ━━━ */}
@@ -133,6 +136,29 @@ export default function ClientBillingPage() {
         </div>
       )}
 
+
+      <div className="glass-card overflow-hidden mb-6">
+        <div className="border-b border-white/[0.05] px-6 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/30">Assigned Licenses</p>
+        </div>
+        <div className="p-6">
+          {assignedLicenses.length === 0 ? (
+            <p className="text-sm text-white/30">No licenses assigned to this account yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {assignedLicenses.map((license) => (
+                <div key={license.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <code className="font-mono text-xs text-[#5f83f4]">{license.key}</code>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusColors[license.status] || "bg-white/[0.06] text-white/40"}`}>{license.status}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/50">Plan: {license.plan} • Domain: {license.domain}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
       {/* ━━━ Stripe Portal ━━━ */}
       <div className="glass-card overflow-hidden mb-6">
         <div className="p-6">

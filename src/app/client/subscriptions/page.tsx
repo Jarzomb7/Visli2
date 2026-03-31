@@ -1,17 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { BILLING_PLANS, BillingPlan } from "@/lib/billing-plans";
 
 interface Sub {
   id: number; status: string; plan: string; productCode: string | null; cancelAt: string | null;
   currentPeriodEnd: string | null; stripeSubscriptionId: string | null; createdAt: string;
   product: { name: string; code: string } | null;
   license: { id: number; key: string; domain: string; status: string; expiresAt: string; features: string[] } | null;
-}
-
-interface Product {
-  id: number; name: string; code: string; description: string | null;
-  stripePriceId: string | null; paymentType: string; priceCents: number | null; active: boolean;
 }
 
 const statusColors: Record<string, string> = {
@@ -26,22 +22,25 @@ const statusDots: Record<string, string> = {
 
 export default function ClientSubscriptionsPage() {
   const [subs, setSubs] = useState<Sub[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [productsLoading, setProductsLoading] = useState(true);
   const [cancelId, setCancelId] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
+  const [changingId, setChangingId] = useState<number | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Record<number, string>>({});
   const [userEmail, setUserEmail] = useState("");
 
   const loadSubs = useCallback(() => {
     setLoading(true);
-    fetch("/api/client/subscriptions").then((r) => r.json()).then((d) => setSubs(d.subscriptions || [])).catch(console.error).finally(() => setLoading(false));
+    fetch("/api/client/subscriptions")
+      .then((r) => r.json())
+      .then((d) => setSubs(d.subscriptions || []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
     loadSubs();
-    fetch("/api/products").then((r) => r.json()).then((d) => setProducts((d.products || []).filter((p: Product) => p.active && p.stripePriceId))).catch(console.error).finally(() => setProductsLoading(false));
     fetch("/api/auth/me").then((r) => r.json()).then((d) => { if (d.user?.email) setUserEmail(d.user.email); }).catch(() => {});
   }, [loadSubs]);
 
@@ -54,14 +53,14 @@ export default function ClientSubscriptionsPage() {
     finally { setCancelling(false); }
   };
 
-  const handleBuy = async (product: Product) => {
+  const handleBuy = async (plan: BillingPlan) => {
     if (!userEmail) { alert("Could not load your email. Please refresh."); return; }
-    setBuying(product.code);
+    setBuying(plan.id);
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, productCode: product.code }),
+        body: JSON.stringify({ email: userEmail, plan: plan.id }),
       });
       const data = await res.json();
       if (data.url) { window.location.href = data.url; }
@@ -69,66 +68,63 @@ export default function ClientSubscriptionsPage() {
     } catch { alert("Network error"); setBuying(null); }
   };
 
-  // Products the user doesn't already have an active sub for
-  const activeProductCodes = new Set(subs.filter(s => s.status === "active").map(s => s.productCode));
-  const availableProducts = products.filter(p => !activeProductCodes.has(p.code));
+  const handleChangePlan = async (subscriptionId: number) => {
+    const plan = selectedPlan[subscriptionId];
+    if (!plan) return;
+    setChangingId(subscriptionId);
+    try {
+      const res = await fetch("/api/client/subscriptions", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionId, plan }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to change plan");
+      } else {
+        loadSubs();
+      }
+    } catch {
+      alert("Network error");
+    } finally {
+      setChangingId(null);
+    }
+  };
+
+  const activePlanCodes = new Set(subs.filter((s) => s.status === "active").map((s) => (s.productCode || "").toLowerCase()));
+  const availablePlans = BILLING_PLANS.filter((plan) => !activePlanCodes.has(plan.productCode.toLowerCase()));
 
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
         <h1 className="font-display text-2xl font-bold tracking-tight text-white">Subscriptions</h1>
-        <p className="mt-1 text-sm text-white/40">Manage your subscriptions and purchase new plans</p>
+        <p className="mt-1 text-sm text-white/40">Upgrade, downgrade, buy a plan, and manage licenses</p>
       </div>
 
-      {/* ━━━ Available Plans ━━━ */}
-      {availableProducts.length > 0 && (
-        <div className="mb-8">
-          <h2 className="font-display text-lg font-semibold text-white mb-4">Available Plans</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {availableProducts.map((p) => (
-              <div key={p.id} className="glass-card overflow-hidden hover:border-[#3b5eee]/30 transition-all duration-300">
-                <div className="p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#3b5eee]/20 to-[#1e3fdb]/10 text-lg">
-                      {p.paymentType === "subscription" ? "🔄" : "💳"}
-                    </div>
-                    <div>
-                      <h3 className="font-display text-base font-semibold text-white">{p.name}</h3>
-                      <span className="text-[10px] font-medium uppercase text-white/25">
-                        {p.paymentType === "subscription" ? "Subscription" : "One-time"}
-                      </span>
-                    </div>
-                  </div>
-                  {p.description && <p className="text-xs text-white/40 mb-4 leading-relaxed">{p.description}</p>}
-                  <div className="flex items-end gap-1 mb-5">
-                    <span className="font-display text-3xl font-bold text-white">
-                      ${p.priceCents ? (p.priceCents / 100).toFixed(2) : "—"}
-                    </span>
-                    {p.paymentType === "subscription" && <span className="text-sm text-white/30 mb-1">/mo</span>}
-                  </div>
-                  <button
-                    onClick={() => handleBuy(p)}
-                    disabled={buying === p.code}
-                    className="btn-primary w-full"
-                  >
-                    {buying === p.code ? (
-                      <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
-                    ) : "Buy Now"}
-                  </button>
+      <div className="mb-8">
+        <h2 className="font-display text-lg font-semibold text-white mb-4">Pricing Plans</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {availablePlans.map((plan) => (
+            <div key={plan.id} className="glass-card overflow-hidden hover:border-[#3b5eee]/30 transition-all duration-300">
+              <div className="p-6">
+                <h3 className="font-display text-base font-semibold text-white">{plan.name}</h3>
+                <div className="mt-2 flex items-end gap-1">
+                  <span className="font-display text-3xl font-bold text-white">${plan.priceMonthly}</span>
+                  <span className="text-sm text-white/30 mb-1">/mo</span>
                 </div>
+                <p className="mt-2 text-xs text-white/40">Max licenses: {plan.maxLicenses}</p>
+                <ul className="mt-3 space-y-1">
+                  {plan.features.map((f) => <li key={f} className="text-xs text-white/50">• {f}</li>)}
+                </ul>
+                <button onClick={() => handleBuy(plan)} disabled={buying === plan.id} className="btn-primary w-full mt-4">
+                  {buying === plan.id ? "Redirecting..." : "Buy Subscription"}
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-      )}
+      </div>
 
-      {productsLoading && availableProducts.length === 0 && (
-        <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2].map(i => <div key={i} className="glass-card h-56 animate-pulse" />)}
-        </div>
-      )}
-
-      {/* ━━━ Current Subscriptions ━━━ */}
       <h2 className="font-display text-lg font-semibold text-white mb-4">Your Subscriptions</h2>
       <div className="space-y-4">
         {loading ? [1,2].map((i) => <div key={i} className="glass-card h-40 animate-pulse" />) : subs.length === 0 ? (
@@ -138,7 +134,7 @@ export default function ClientSubscriptionsPage() {
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h3 className="font-display text-lg font-semibold text-white">{s.product?.name || s.productCode}</h3>
+                  <h3 className="font-display text-lg font-semibold text-white">{s.product?.name || s.productCode || s.plan}</h3>
                   <div className="mt-1 flex items-center gap-2">
                     <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs font-medium text-white/50 uppercase">{s.plan}</span>
                     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${statusColors[s.status] || statusColors.incomplete}`}>
@@ -168,12 +164,29 @@ export default function ClientSubscriptionsPage() {
                   <p className="text-sm text-white/60">{s.license?.domain === "PENDING" ? <span className="text-amber-400">Not set</span> : s.license?.domain || "—"}</p>
                 </div>
               </div>
+
+              {s.status === "active" && (
+                <div className="mt-5 border-t border-white/[0.05] pt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <select
+                    value={selectedPlan[s.id] || ""}
+                    onChange={(e) => setSelectedPlan((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                    className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">Select plan</option>
+                    {BILLING_PLANS.map((plan) => (
+                      <option key={plan.id} value={plan.id}>{plan.name}</option>
+                    ))}
+                  </select>
+                  <button onClick={() => handleChangePlan(s.id)} disabled={!selectedPlan[s.id] || changingId === s.id} className="btn-ghost">
+                    {changingId === s.id ? "Updating..." : "Change plan"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Cancel modal */}
       {cancelId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="glass-card w-full max-w-sm p-6 animate-fade-in">

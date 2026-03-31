@@ -56,6 +56,35 @@ async function ensureUserExists(
   return { userId: user.id, plainPassword: null, isNew: false };
 }
 
+
+async function findExistingLicense(params: {
+  stripeSubId?: string;
+  email: string;
+  productId: number | null;
+}) {
+  const { stripeSubId, email, productId } = params;
+
+  if (stripeSubId) {
+    const bySub = await prisma.license.findFirst({
+      where: { stripeSubId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (bySub) return bySub;
+  }
+
+  if (productId) {
+    return prisma.license.findFirst({
+      where: {
+        email,
+        productId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   console.log("[WEBHOOK] ===== Stripe webhook received =====");
 
@@ -146,26 +175,38 @@ export async function POST(request: NextRequest) {
           console.warn("[WEBHOOK] ⚠️ Product not found for code:", productCode, "— license will have no productId");
         }
 
-        // 4. Create license
+        // 4. Create or reuse license (idempotent on retries)
         const features: string[] = [];
-        const licenseKey = generateLicenseKey();
-        const license = await prisma.license.create({
-          data: {
-            key: licenseKey,
-            domain,
-            status: "active",
-            plan,
-            features,
-            email,
-            domainLocked: domain !== "PENDING",
-            stripeSubId: subscriptionId || null,
-            expiresAt: periodEnd,
-            productId: product?.id || null,
-          },
+        const existingLicense = await findExistingLicense({
+          stripeSubId: subscriptionId || undefined,
+          email,
+          productId: product?.id || null,
         });
-        console.log("[WEBHOOK] ✅ License created:", license.key, "id:", license.id, "for:", email);
 
-        // 5. Create subscription record
+        const license =
+          existingLicense ||
+          (await prisma.license.create({
+            data: {
+              key: generateLicenseKey(),
+              domain,
+              status: "active",
+              plan,
+              features,
+              email,
+              domainLocked: domain !== "PENDING",
+              stripeSubId: subscriptionId || null,
+              expiresAt: periodEnd,
+              productId: product?.id || null,
+            },
+          }));
+
+        if (existingLicense) {
+          console.log("[WEBHOOK] ℹ️ Reusing existing license:", license.key, "id:", license.id);
+        } else {
+          console.log("[WEBHOOK] ✅ License created:", license.key, "id:", license.id, "for:", email);
+        }
+
+        // 5. Create/update subscription record
         if (subscriptionId) {
           await prisma.subscription.upsert({
             where: { stripeSubscriptionId: subscriptionId },
@@ -194,7 +235,7 @@ export async function POST(request: NextRequest) {
               licenseId: license.id,
             },
           });
-          console.log("[WEBHOOK] ✅ Subscription created for user:", userId, "license:", license.id);
+          console.log("[WEBHOOK] ✅ Subscription upserted for user:", userId, "license:", license.id);
         }
 
         // 6. Send welcome email (only for new users — includes generated password)
@@ -265,23 +306,44 @@ export async function POST(request: NextRequest) {
           const product = resolved ? await prisma.product.findUnique({ where: { code: resolved.productCode } }) : null;
           const features: string[] = [];
 
-          const license = await prisma.license.create({
-            data: {
-              key: generateLicenseKey(),
-              domain: "PENDING",
-              status: "active",
-              plan,
-              features,
-              email,
-              domainLocked: false,
-              stripeSubId: sub.id,
-              expiresAt: periodEnd,
-              productId: product?.id || null,
-            },
+          const existingLicense = await findExistingLicense({
+            stripeSubId: sub.id,
+            email,
+            productId: product?.id || null,
           });
 
-          await prisma.subscription.create({
-            data: {
+          const license =
+            existingLicense ||
+            (await prisma.license.create({
+              data: {
+                key: generateLicenseKey(),
+                domain: "PENDING",
+                status: "active",
+                plan,
+                features,
+                email,
+                domainLocked: false,
+                stripeSubId: sub.id,
+                expiresAt: periodEnd,
+                productId: product?.id || null,
+              },
+            }));
+
+          await prisma.subscription.upsert({
+            where: { stripeSubscriptionId: sub.id },
+            update: {
+              email,
+              userId,
+              stripeCustomerId: customerId,
+              stripePriceId: resolved?.priceId || null,
+              status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete",
+              plan,
+              productCode: resolved?.productCode || null,
+              productId: product?.id || null,
+              currentPeriodEnd: periodEnd,
+              licenseId: license.id,
+            },
+            create: {
               email,
               userId,
               stripeCustomerId: customerId,
@@ -295,7 +357,7 @@ export async function POST(request: NextRequest) {
               licenseId: license.id,
             },
           });
-          console.log("[WEBHOOK] ✅ Subscription + license created from subscription.created for:", email);
+          console.log("[WEBHOOK] ✅ Subscription upserted from subscription.created for:", email);
         } else {
           console.warn("[WEBHOOK] ⚠️ Could not resolve email for customer:", customerId);
         }
@@ -314,8 +376,8 @@ export async function POST(request: NextRequest) {
         console.log("[WEBHOOK] customer.subscription.updated:", sub.id, "stripe status:", sub.status);
 
         let ourStatus = "active";
-        if (sub.status === "past_due") ourStatus = "past_due";
-        else if (sub.status === "canceled" || sub.status === "unpaid") ourStatus = "canceled";
+        if (sub.status === "canceled") ourStatus = "canceled";
+        else if (sub.status === "past_due" || sub.status === "unpaid") ourStatus = "past_due";
         else if (sub.status === "incomplete" || sub.status === "incomplete_expired") ourStatus = "incomplete";
         else if (sub.status === "trialing") ourStatus = "active";
 

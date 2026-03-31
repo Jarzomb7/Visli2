@@ -9,10 +9,11 @@ interface SubData {
 }
 interface Invoice { id: string; date: string; amount: number; status: string; url: string | null; }
 interface Addon { id: number; type: string; amount: number; status: string; meta: string | null; createdAt: string; }
+interface AssignedLicense { id: number; key: string; domain: string; status: string; expiresAt: string; plan: string; }
 
-const addonTypes = [
-  { type: "sms_pack", name: "SMS Package", desc: "500 SMS credits", icon: "💬", amount: 500 },
-  { type: "ai_credits", name: "AI Credits", desc: "1000 AI response credits", icon: "🤖", amount: 1000 },
+const smsPackages = [
+  { id: "sms_100", name: "100 SMS", amount: 20, credits: 100 },
+  { id: "sms_500", name: "500 SMS", amount: 80, credits: 500 },
 ];
 
 const statusColors: Record<string, string> = {
@@ -27,6 +28,7 @@ export default function ClientBillingPage() {
   const [sub, setSub] = useState<SubData | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
+  const [assignedLicenses, setAssignedLicenses] = useState<AssignedLicense[]>([]);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
   const [buyingType, setBuyingType] = useState<string | null>(null);
@@ -39,6 +41,7 @@ export default function ClientBillingPage() {
     ]).then(([billingData, addonData]) => {
       setSub(billingData.subscription || null);
       setInvoices(billingData.invoices || []);
+      setAssignedLicenses(billingData.assignedLicenses || []);
       setAddons(addonData.addons || []);
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
@@ -48,18 +51,20 @@ export default function ClientBillingPage() {
   const openPortal = async () => {
     setPortalLoading(true);
     try {
-      const res = await fetch("/api/stripe/customer-portal", { method: "POST" });
+      const res = await fetch("/api/stripe/portal", { method: "POST" });
       const data = await res.json();
       if (data.url) { window.location.href = data.url; }
       else { alert(data.error || "Could not open billing portal"); setPortalLoading(false); }
     } catch { alert("Network error"); setPortalLoading(false); }
   };
 
-  const buyAddon = async (type: string) => {
-    setBuyingType(type);
+  const buyAddon = async (packageId: string) => {
+    setBuyingType(packageId);
     try {
-      const res = await fetch("/api/client/addons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) });
-      if (res.ok) { load(); } else { const d = await res.json(); alert(d.error || "Failed"); }
+      const res = await fetch("/api/stripe/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addonPackageId: packageId }) });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+      else alert(data.error || "Failed");
     } catch { alert("Network error"); }
     finally { setBuyingType(null); }
   };
@@ -77,8 +82,8 @@ export default function ClientBillingPage() {
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing</h1>
-        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, and subscription</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing / Subskrypcja</h1>
+        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, licenses, and subscription</p>
       </div>
 
       {/* ━━━ Current Subscription ━━━ */}
@@ -133,6 +138,29 @@ export default function ClientBillingPage() {
         </div>
       )}
 
+
+      <div className="glass-card overflow-hidden mb-6">
+        <div className="border-b border-white/[0.05] px-6 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/30">Assigned Licenses</p>
+        </div>
+        <div className="p-6">
+          {assignedLicenses.length === 0 ? (
+            <p className="text-sm text-white/30">No licenses assigned to this account yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {assignedLicenses.map((license) => (
+                <div key={license.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <code className="font-mono text-xs text-[#5f83f4]">{license.key}</code>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusColors[license.status] || "bg-white/[0.06] text-white/40"}`}>{license.status}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/50">Plan: {license.plan} • Domain: {license.domain}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
       {/* ━━━ Stripe Portal ━━━ */}
       <div className="glass-card overflow-hidden mb-6">
         <div className="p-6">
@@ -198,18 +226,18 @@ export default function ClientBillingPage() {
       )}
 
       {/* ━━━ Addons ━━━ */}
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Add-ons</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-4">Dodatki</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        {addonTypes.map((a) => (
-          <div key={a.type} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">
+        {smsPackages.map((p) => (
+          <div key={p.id} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-2xl mb-2">{a.icon}</p>
-                <h3 className="font-display text-base font-semibold text-white">{a.name}</h3>
-                <p className="mt-1 text-xs text-white/40">{a.desc}</p>
+                <h3 className="font-display text-base font-semibold text-white">{p.name}</h3>
+                <p className="mt-1 text-xs text-white/40">Pakiet SMS</p>
+                <p className="mt-1 text-sm text-emerald-400">{p.amount} zł</p>
               </div>
-              <button onClick={() => buyAddon(a.type)} disabled={buyingType === a.type} className="btn-ghost px-4 py-2 text-xs">
-                {buyingType === a.type ? "Adding..." : "Add"}
+              <button onClick={() => buyAddon(p.id)} disabled={buyingType === p.id} className="btn-ghost px-4 py-2 text-xs">
+                {buyingType === p.id ? "Trwa..." : "Kup"}
               </button>
             </div>
           </div>

@@ -6,63 +6,68 @@ import { getStripe } from "@/lib/stripe";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    const session = await getClientSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await getClientSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const subscriptions = await prisma.subscription.findMany({
-      where: {
-        OR: [
-          { email: session.email },
-          { userId: session.id },
-        ],
-      },
-      include: {
-        product: { select: { id: true, name: true, code: true } },
-        license: { select: { id: true, key: true, domain: true, status: true, expiresAt: true, features: true } },
-      },
+  const [subscriptions, plans] = await Promise.all([
+    prisma.subscription.findMany({
+      where: { OR: [{ email: session.email }, { userId: session.id }] },
+      include: { license: true, product: true },
       orderBy: { createdAt: "desc" },
-    });
+    }),
+    prisma.plan.findMany({ where: { isActive: true }, orderBy: { priceMonthly: "asc" } }),
+  ]);
 
-    return NextResponse.json({ subscriptions });
-  } catch (err) {
-    console.error("[CLIENT-SUBS] Error:", err);
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
-  }
+  return NextResponse.json({ subscriptions, plans });
 }
 
-export async function DELETE(request: NextRequest) {
+export async function PATCH(request: NextRequest) {
+  const session = await getClientSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: { subscriptionId: number; planId: number };
   try {
-    const session = await getClientSession();
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    let body: { subscriptionId?: number };
-    try { body = await request.json(); } catch { return NextResponse.json({ error: "Invalid body" }, { status: 400 }); }
-
-    if (!body.subscriptionId) return NextResponse.json({ error: "subscriptionId required" }, { status: 400 });
-
-    const sub = await prisma.subscription.findUnique({ where: { id: body.subscriptionId } });
-    if (!sub || (sub.email !== session.email && sub.userId !== session.id)) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-    if (sub.stripeSubscriptionId) {
-      try {
-        const stripeClient = await getStripe();
-        await stripeClient.subscriptions.update(sub.stripeSubscriptionId, { cancel_at_period_end: true });
-        console.log("[CLIENT-SUBS] ✅ Scheduled cancellation for:", sub.stripeSubscriptionId);
-      } catch (err) {
-        console.error("[CLIENT-SUBS] Stripe cancel error:", err);
-        return NextResponse.json({ error: "Failed to cancel subscription" }, { status: 500 });
-      }
-    }
-
-    await prisma.subscription.update({
-      where: { id: sub.id },
-      data: { cancelAt: sub.currentPeriodEnd },
-    });
-
-    return NextResponse.json({ success: true, message: "Subscription will cancel at end of billing period" });
-  } catch (err) {
-    console.error("[CLIENT-SUBS] Cancel error:", err);
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
+
+  if (!body.subscriptionId || !body.planId) {
+    return NextResponse.json({ error: "subscriptionId and planId are required" }, { status: 400 });
+  }
+
+  const [subscription, plan] = await Promise.all([
+    prisma.subscription.findUnique({ where: { id: body.subscriptionId } }),
+    prisma.plan.findUnique({ where: { id: body.planId } }),
+  ]);
+
+  if (!subscription || (subscription.email !== session.email && subscription.userId !== session.id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!plan || !plan.isActive || !plan.stripePriceId) {
+    return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+  }
+
+  if (subscription.stripeSubscriptionId) {
+    const stripe = await getStripe();
+    const stripeSub = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+    const itemId = stripeSub.items.data[0]?.id;
+    if (!itemId) return NextResponse.json({ error: "Subscription item not found" }, { status: 400 });
+
+    await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      items: [{ id: itemId, price: plan.stripePriceId }],
+      proration_behavior: "create_prorations",
+    });
+  }
+
+  await prisma.subscription.update({
+    where: { id: subscription.id },
+    data: {
+      plan: plan.name.toLowerCase(),
+      stripePriceId: plan.stripePriceId,
+      productCode: plan.name.toUpperCase().replace(/\s+/g, "_"),
+    },
+  });
+
+  return NextResponse.json({ success: true });
 }

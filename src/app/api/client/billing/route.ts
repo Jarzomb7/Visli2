@@ -23,6 +23,17 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    const assignedLicenses = await prisma.license.findMany({
+      where: {
+        OR: [
+          { email: session.email },
+          { subscription: { userId: session.id } },
+        ],
+      },
+      select: { id: true, key: true, domain: true, status: true, expiresAt: true, plan: true },
+      orderBy: { createdAt: "desc" },
+    });
+
     // Fetch invoices from Stripe if customer exists
     let invoices: { id: string; date: string; amount: number; status: string; url: string | null }[] = [];
     if (subscription?.stripeCustomerId) {
@@ -44,7 +55,7 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ subscription, invoices });
+    return NextResponse.json({ subscription, invoices, assignedLicenses });
   } catch (err) {
     console.error("[CLIENT-BILLING] Error:", err);
     return NextResponse.json({ error: "Failed" }, { status: 500 });

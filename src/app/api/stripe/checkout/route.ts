@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe, isValidStripePriceId } from "@/lib/stripe";
 import { getSetting } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
+import { getBillingPlan } from "@/lib/billing-plans";
 
 export const dynamic = "force-dynamic";
 
@@ -16,23 +17,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { email, productCode, domain, duration } = body;
+    const { email, productCode, plan, domain, duration } = body;
 
-    if (!email || !productCode) {
-      return NextResponse.json({ error: "email and productCode are required" }, { status: 400 });
+    if (!email) {
+      return NextResponse.json({ error: "email is required" }, { status: 400 });
     }
 
-    // Load product from DB
-    const product = await prisma.product.findUnique({ where: { code: productCode.toUpperCase() } });
-    if (!product || !product.active) {
-      return NextResponse.json({ error: `Product not found or inactive: ${productCode}` }, { status: 400 });
+    const selectedPlan = plan ? getBillingPlan(plan) : null;
+    const code = (selectedPlan?.productCode || productCode || "").toUpperCase();
+
+    if (!code) {
+      return NextResponse.json({ error: "productCode or plan is required" }, { status: 400 });
     }
 
-    if (!product.stripePriceId || !isValidStripePriceId(product.stripePriceId)) {
-      return NextResponse.json({ error: `No valid Stripe price configured for product: ${product.name}. Go to Products and assign a price_id.` }, { status: 400 });
+    let product = await prisma.product.findUnique({ where: { code } });
+    if (product && !product.active) {
+      return NextResponse.json({ error: `Product not found or inactive: ${code}` }, { status: 400 });
     }
 
-    console.log("[CHECKOUT] Product:", product.name, "Price:", product.stripePriceId, "Type:", product.paymentType);
+    const planPriceId = selectedPlan ? await getSetting(selectedPlan.settingKey, "") : "";
+    const stripePriceId = selectedPlan ? planPriceId : product?.stripePriceId || "";
+
+    if (!stripePriceId || !isValidStripePriceId(stripePriceId)) {
+      return NextResponse.json({ error: `No valid Stripe price configured for ${selectedPlan?.name || code}` }, { status: 400 });
+    }
+
+    if (!product) {
+      product = await prisma.product.create({
+        data: {
+          code,
+          name: selectedPlan?.name || code,
+          paymentType: "subscription",
+          stripePriceId,
+          priceCents: selectedPlan ? Math.round(selectedPlan.priceMonthly * 100) : null,
+          active: true,
+        },
+      });
+    }
+
+    console.log("[CHECKOUT] Product:", product.name, "Price:", stripePriceId, "Type:", product.paymentType);
 
     const cleanDomain = domain
       ? domain.toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/:\d+$/, "")
@@ -41,16 +64,14 @@ export async function POST(request: NextRequest) {
     const stripeClient = await getStripe();
     const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
 
-    const isSubscription = product.paymentType === "subscription";
-
     const session = await stripeClient.checkout.sessions.create({
-      mode: isSubscription ? "subscription" : "payment",
+      mode: "subscription",
       payment_method_types: ["card"],
       customer_email: email,
-      line_items: [{ price: product.stripePriceId, quantity: 1 }],
+      line_items: [{ price: stripePriceId, quantity: 1 }],
       metadata: {
-        productCode: product.code,
-        plan: duration || (isSubscription ? "subscription" : "one_time"),
+        productCode: code,
+        plan: selectedPlan?.id || duration || "subscription",
         domain: cleanDomain,
       },
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,

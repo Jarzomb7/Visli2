@@ -336,7 +336,7 @@ export async function POST(request: NextRequest) {
         const licenseUpdate: Record<string, unknown> = { status: licenseStatus, expiresAt: periodEnd };
         if (resolved) {
           licenseUpdate.plan = resolved.plan;
-          licenseUpdate.features = [];
+          licenseUpdate.features = [] as string[];
         }
 
         await prisma.license.updateMany({
@@ -400,7 +400,7 @@ export async function POST(request: NextRequest) {
             data: {
               status: "active",
               expiresAt: periodEnd,
-              ...(resolved ? { plan: resolved.plan, features: [] } : {}),
+              ...(resolved ? { plan: resolved.plan, features: [] as string[] } : {}),
             },
           });
 

@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 model User {
@@ -78,7 +79,7 @@ model Subscription {
   email                String
   userId               Int?      @map("user_id")
   user                 User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  stripeCustomerId     String?   @unique @map("stripe_customer_id")
+  stripeCustomerId     String?   @map("stripe_customer_id")
   stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
   stripePriceId        String?   @map("stripe_price_id")
   status               String    @default("incomplete")
@@ -96,6 +97,7 @@ model Subscription {
   @@index([email])
   @@index([userId])
   @@index([status])
+  @@index([stripeCustomerId])
   @@map("subscriptions")
 }
 

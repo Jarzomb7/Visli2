@@ -173,21 +173,12 @@ export const translations: Record<Lang, Record<string, string>> = {
   },
 };
 
-export function t(key: string, vars?: Record<string, string>) {
-  const lang =
-    typeof window !== "undefined"
-      ? (localStorage.getItem("visli_lang") as Lang) || "pl"
-      : "pl";
-
-  const translations = TRANSLATIONS[lang] || TRANSLATIONS["pl"];
-
-  let text = translations[key] || key;
-
+export function t(lang: Lang, key: string, vars?: Record<string, string>): string {
+  let text = translations[lang]?.[key] || translations.en[key] || key;
   if (vars) {
-    Object.entries(vars).forEach(([k, v]) => {
-      text = text.replace(`{{${k}}}`, v);
-    });
+    for (const [k, v] of Object.entries(vars)) {
+      text = text.replace(new RegExp(`{{${k}}}`, "g"), v);
+    }
   }
-
   return text;
 }

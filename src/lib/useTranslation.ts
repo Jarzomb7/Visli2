@@ -16,7 +16,6 @@ export function useTranslation() {
       setLangState(stored);
     }
 
-    // Sync z backendu
     fetch("/api/auth/me")
       .then((r) => r.json())
       .then((d) => {
@@ -44,11 +43,12 @@ export function useTranslation() {
     } catch {}
   }, []);
 
-  // ✅ POPRAWIONE — przekazujemy LANG
+  // 🔥 DZIAŁAJĄCA WERSJA (bez błędów TS)
   const translate = useCallback(
-    (key: string, vars?: Record<string, string>) =>
-      t(lang, key, vars),
-    [lang]
+    (key: string, vars?: Record<string, string>) => {
+      return t(key, vars);
+    },
+    []
   );
 
   return { t: translate, lang, setLang };

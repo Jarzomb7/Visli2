@@ -39,13 +39,11 @@ export function isValidStripePriceId(val: string): boolean {
  * Falls back to Settings for backward compatibility.
  */
 export async function getPriceIdForProduct(productCode: string): Promise<string | null> {
-  // Try Product model first
   const product = await prisma.product.findUnique({ where: { code: productCode } });
   if (product?.stripePriceId && isValidStripePriceId(product.stripePriceId)) {
     return product.stripePriceId;
   }
 
-  // Fallback: settings-based lookup (legacy)
   const settingKey = `STRIPE_PRICE_${productCode}`.toUpperCase();
   const val = await getSetting(settingKey);
   if (val && isValidStripePriceId(val)) return val;
@@ -56,11 +54,9 @@ export async function getPriceIdForProduct(productCode: string): Promise<string 
 
 /** Legacy compat — still used by old checkout flow */
 export async function getPriceIdAsync(productCode: string, plan: string): Promise<string | null> {
-  // First try product-level price
   const productPrice = await getPriceIdForProduct(productCode);
   if (productPrice) return productPrice;
 
-  // Fallback: settings key with plan suffix
   const key = `STRIPE_PRICE_${productCode}_${plan}`.toUpperCase();
   const val = await getSetting(key);
   if (val && isValidStripePriceId(val)) return val;
@@ -69,9 +65,6 @@ export async function getPriceIdAsync(productCode: string, plan: string): Promis
   return null;
 }
 
-/**
- * Resolve productCode from a Stripe price ID by checking Product table.
- */
 export async function resolveProductFromPriceId(priceId: string): Promise<{ productCode: string; productName: string } | null> {
   const product = await prisma.product.findFirst({
     where: { stripePriceId: priceId, active: true },
@@ -81,21 +74,34 @@ export async function resolveProductFromPriceId(priceId: string): Promise<{ prod
   return null;
 }
 
+export async function resolvePlanFromPriceId(priceId: string): Promise<string | null> {
+  const plan = await prisma.plan.findFirst({
+    where: { stripePriceId: priceId },
+    select: { name: true },
+  });
+  return plan?.name?.toLowerCase() || null;
+}
+
 export async function resolveFromSubscription(sub: Stripe.Subscription): Promise<{ productCode: string; plan: string; priceId: string } | null> {
   const item = sub.items?.data?.[0];
   if (!item?.price?.id) return null;
 
-  const resolved = await resolveProductFromPriceId(item.price.id);
-  if (resolved) {
-    return { productCode: resolved.productCode, plan: "subscription", priceId: item.price.id };
+  const [resolvedProduct, resolvedPlan] = await Promise.all([
+    resolveProductFromPriceId(item.price.id),
+    resolvePlanFromPriceId(item.price.id),
+  ]);
+
+  if (resolvedProduct) {
+    return {
+      productCode: resolvedProduct.productCode,
+      plan: resolvedPlan || "basic",
+      priceId: item.price.id,
+    };
   }
 
   return null;
 }
 
-/**
- * Get real revenue from Stripe (amounts are in cents).
- */
 export async function getRevenueStats(): Promise<{
   monthlyRevenue: number;
   previousMonthRevenue: number;

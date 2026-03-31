@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
         }
 
         // 4. Create license
-        const features = [];
+        const features: string[] = [];
         const licenseKey = generateLicenseKey();
         const license = await prisma.license.create({
           data: {

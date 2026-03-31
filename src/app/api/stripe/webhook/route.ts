@@ -263,7 +263,7 @@ export async function POST(request: NextRequest) {
           const { userId } = await ensureUserExists(email, customerId);
           const plan = resolved?.plan || "basic";
           const product = resolved ? await prisma.product.findUnique({ where: { code: resolved.productCode } }) : null;
-          const features = [];
+          const features: string[] = [];
 
           const license = await prisma.license.create({
             data: {

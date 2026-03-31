@@ -120,7 +120,7 @@ export default function FeaturesPage() {
               {categories.map((cat) => (
                 productFeatures
                   .filter((f) => (f.category || "general") === cat)
-                  .map((feature, idx) => (
+                  .map((feature) => (
                     <tr key={feature.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                       <td className="px-6 py-4">
                         <div>

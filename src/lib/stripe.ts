@@ -8,10 +8,8 @@ const globalForStripe = globalThis as unknown as {
 };
 
 export async function getStripe(): Promise<Stripe> {
-  const envKey = process.env.STRIPE_SECRET_KEY;
-  if (!envKey) throw new Error("[STRIPE] STRIPE_SECRET_KEY is required");
-
-  const key = envKey || await getSetting("STRIPE_SECRET_KEY", "");
+  const key = process.env.STRIPE_SECRET_KEY || await getSetting("STRIPE_SECRET_KEY", "");
+  if (!key) throw new Error("[STRIPE] STRIPE_SECRET_KEY not configured (set env or Settings)");
 
   if (globalForStripe._stripeClient && globalForStripe._stripeKey === key) {
     return globalForStripe._stripeClient;
@@ -22,10 +20,9 @@ export async function getStripe(): Promise<Stripe> {
 }
 
 export async function getWebhookSecret(): Promise<string> {
-  const envSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!envSecret) throw new Error("[STRIPE] STRIPE_WEBHOOK_SECRET is required");
-
-  return envSecret || await getSetting("STRIPE_WEBHOOK_SECRET", "");
+  const secret = process.env.STRIPE_WEBHOOK_SECRET || await getSetting("STRIPE_WEBHOOK_SECRET", "");
+  if (!secret) throw new Error("[STRIPE] STRIPE_WEBHOOK_SECRET not configured");
+  return secret;
 }
 
 export function resetStripeClient(): void {

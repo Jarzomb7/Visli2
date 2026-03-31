@@ -14,19 +14,23 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20")));
     const search = searchParams.get("search") || "";
 
-    const where: Record<string, unknown> = { role: "client" };
-    if (search) {
-      where.OR = [
-        { email: { contains: search, mode: "insensitive" } },
-        { name: { contains: search, mode: "insensitive" } },
-      ];
-      delete where.role;
-      where.AND = [{ role: "client" }];
-    }
+    const baseWhere = search
+      ? {
+          AND: [
+            { role: "client" as const },
+            {
+              OR: [
+                { email: { contains: search, mode: "insensitive" as const } },
+                { name: { contains: search, mode: "insensitive" as const } },
+              ],
+            },
+          ],
+        }
+      : { role: "client" as const };
 
     const [clients, total] = await Promise.all([
       prisma.user.findMany({
-        where,
+        where: baseWhere,
         select: {
           id: true,
           email: true,
@@ -40,7 +44,7 @@ export async function GET(request: NextRequest) {
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.user.count({ where }),
+      prisma.user.count({ where: baseWhere }),
     ]);
 
     // Also get license count per client email

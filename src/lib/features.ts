@@ -40,14 +40,6 @@ export async function getFeaturesForPlanAndProduct(
   productCode: string | null
 ): Promise<string[]> {
   try {
-    const where: Record<string, unknown> = { plan: plan.toLowerCase() };
-    if (productCode) {
-      where.OR = [
-        { product: productCode },
-        { product: null },
-      ];
-    }
-
     const planFeatures = await prisma.planFeature.findMany({
       where: { plan: plan.toLowerCase(), ...(productCode ? { product: productCode } : {}) },
       include: { feature: { select: { code: true } } },

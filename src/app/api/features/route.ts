@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
-import { getFeatureMatrix } from "@/lib/features";
-import { ensureFeaturesExist } from "@/lib/features";
+import { getFeatureMatrix, ensureFeaturesExist } from "@/lib/features";
 
 export const dynamic = "force-dynamic";
 

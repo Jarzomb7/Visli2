@@ -6,7 +6,7 @@ function getJwtSecret() {
   return new TextEncoder().encode(secret);
 }
 
-const ADMIN_PATHS = ["/dashboard", "/licenses", "/clients", "/subscriptions", "/features", "/settings", "/products", "/email-templates"];
+const ADMIN_PATHS = ["/dashboard", "/licenses", "/clients", "/subscriptions", "/features", "/settings", "/products", "/email-templates", "/pricing", "/manual-revenue"];
 const CLIENT_PATHS = ["/client"];
 
 export async function middleware(request: NextRequest) {
@@ -57,6 +57,8 @@ export const config = {
     "/settings/:path*",
     "/products/:path*",
     "/email-templates/:path*",
+    "/pricing/:path*",
+    "/manual-revenue/:path*",
     "/client/:path*",
   ],
 };

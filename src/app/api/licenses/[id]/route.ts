@@ -49,14 +49,20 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
 
-    let body: Record<string, unknown>;
+    let body: { domain?: string; plan?: string; status?: string; expiresAt?: string; productId?: number | null };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid body" }, { status: 400 });
     }
 
-    const updateData: Record<string, unknown> = {};
+    const updateData: {
+      domain?: string;
+      plan?: string;
+      status?: string;
+      expiresAt?: Date;
+      productId?: number | null;
+    } = {};
     if (typeof body.domain === "string") {
       updateData.domain = body.domain.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "").replace(/:\d+$/, "").replace(/\/$/, "");
     }

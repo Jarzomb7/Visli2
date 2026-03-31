@@ -395,7 +395,7 @@ export async function POST(request: NextRequest) {
         if (ourStatus === "canceled") licenseStatus = "expired";
         else if (ourStatus === "past_due") licenseStatus = "suspended";
 
-        const licenseUpdate: Record<string, unknown> = { status: licenseStatus, expiresAt: periodEnd };
+        const licenseUpdate: { status: string; expiresAt: Date; plan?: string; features?: string[] } = { status: licenseStatus, expiresAt: periodEnd };
         if (resolved) {
           licenseUpdate.plan = resolved.plan;
           licenseUpdate.features = [] as string[];

@@ -26,7 +26,10 @@ export function useTranslation() {
     try { await fetch("/api/auth/language", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ language: newLang }) }); } catch {}
   }, []);
 
-  const translate = useCallback((key: string, vars?: Record<string, string>) => t(lang, key, vars), [lang]);
+  const translate = useCallback(
+  (key: string, vars?: Record<string, string>) => t(key, vars),
+  []
+);
 
   return { t: translate, lang, setLang };
 }

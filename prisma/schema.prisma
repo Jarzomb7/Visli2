@@ -203,3 +203,15 @@ model Plan {
   @@index([isActive])
   @@map("plans")
 }
+
+
+model ManualRevenue {
+  id        Int      @id @default(autoincrement())
+  amount    Int
+  type      String
+  date      DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([date])
+  @@map("manual_revenue")
+}

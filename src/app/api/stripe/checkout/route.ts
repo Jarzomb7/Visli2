@@ -9,16 +9,46 @@ export async function POST(request: NextRequest) {
   console.log("[CHECKOUT] ===== Creating checkout session =====");
 
   try {
-    let body: { email?: string; productCode?: string; planId?: number; domain?: string; duration?: string };
+    let body: { email?: string; productCode?: string; planId?: number; addonPackageId?: string; domain?: string; duration?: string };
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
 
-    const { email, productCode, planId, domain, duration } = body;
-    if (!email) return NextResponse.json({ error: "email is required" }, { status: 400 });
+    const { email, productCode, planId, addonPackageId, domain, duration } = body;
 
+
+    if (addonPackageId) {
+      const packages: Record<string, { amount: number; credits: number }> = {
+        sms_100: { amount: 2000, credits: 100 },
+        sms_500: { amount: 8000, credits: 500 },
+      };
+      const pkg = packages[addonPackageId];
+      if (!pkg) return NextResponse.json({ error: "Invalid package" }, { status: 400 });
+
+      const stripeClient = await getStripe();
+      const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000");
+      const session = await stripeClient.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [{
+          price_data: {
+            currency: "pln",
+            product_data: { name: `${pkg.credits} SMS` },
+            unit_amount: pkg.amount,
+          },
+          quantity: 1,
+        }],
+        metadata: { addonPackageId },
+        success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/checkout/cancel`,
+        ...(email ? { customer_email: email } : {}),
+      });
+      return NextResponse.json({ url: session.url, sessionId: session.id });
+    }
+
+    if (!email) return NextResponse.json({ error: "email is required" }, { status: 400 });
     let stripePriceId = "";
     let code = (productCode || "").toUpperCase();
     let planName = duration || "subscription";

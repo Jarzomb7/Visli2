@@ -11,6 +11,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     clients: "Klienci",
     emails: "E-maile",
     settings: "Ustawienia",
+    manual_revenue: "Przychód ręczny",
     sign_out: "Wyloguj się",
 
     // Client nav
@@ -97,6 +98,7 @@ export const translations: Record<Lang, Record<string, string>> = {
     clients: "Clients",
     emails: "Emails",
     settings: "Settings",
+    manual_revenue: "Manual Revenue",
     sign_out: "Sign Out",
 
     // Client nav

@@ -68,8 +68,7 @@ export default function ClientSubscriptionsPage() {
     } catch { alert("Network error"); setBuying(null); }
   };
 
-  const handleChangePlan = async (subscriptionId: number) => {
-    const plan = selectedPlan[subscriptionId];
+  const handleChangePlan = async (subscriptionId: number, plan: string) => {
     if (!plan) return;
     setChangingId(subscriptionId);
     try {
@@ -91,41 +90,57 @@ export default function ClientSubscriptionsPage() {
     }
   };
 
-  const activePlanCodes = new Set(subs.filter((s) => s.status === "active").map((s) => (s.productCode || "").toLowerCase()));
-  const availablePlans = BILLING_PLANS.filter((plan) => !activePlanCodes.has(plan.productCode.toLowerCase()));
-
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Subscriptions</h1>
-        <p className="mt-1 text-sm text-white/40">Upgrade, downgrade, buy a plan, and manage licenses</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Subskrypcja / Billing</h1>
+        <p className="mt-1 text-sm text-white/40">Kup plan, zmień plan i zarządzaj subskrypcją</p>
       </div>
 
       <div className="mb-8">
-        <h2 className="font-display text-lg font-semibold text-white mb-4">Pricing Plans</h2>
+        <h2 className="font-display text-lg font-semibold text-white mb-4">Plany</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {availablePlans.map((plan) => (
+          {BILLING_PLANS.map((plan) => {
+            const activeSubscription = subs.find((sub) => sub.status === "active" || sub.status === "trialing");
+            const currentPlanKey = (activeSubscription?.plan || activeSubscription?.productCode || "").toLowerCase();
+            const isCurrentPlan = currentPlanKey === plan.id || currentPlanKey === plan.productCode.toLowerCase();
+
+            return (
             <div key={plan.id} className="glass-card overflow-hidden hover:border-[#3b5eee]/30 transition-all duration-300">
               <div className="p-6">
                 <h3 className="font-display text-base font-semibold text-white">{plan.name}</h3>
                 <div className="mt-2 flex items-end gap-1">
                   <span className="font-display text-3xl font-bold text-white">${plan.priceMonthly}</span>
-                  <span className="text-sm text-white/30 mb-1">/mo</span>
+                  <span className="text-sm text-white/30 mb-1">/mies.</span>
                 </div>
                 <p className="mt-2 text-xs text-white/40">Max licenses: {plan.maxLicenses}</p>
                 <ul className="mt-3 space-y-1">
                   {plan.features.map((f) => <li key={f} className="text-xs text-white/50">• {f}</li>)}
                 </ul>
-                <button onClick={() => handleBuy(plan)} disabled={buying === plan.id} className="btn-primary w-full mt-4">
-                  {buying === plan.id ? "Redirecting..." : "Buy Subscription"}
-                </button>
+                {activeSubscription ? (
+                  <button
+                    onClick={() => {
+                      if (isCurrentPlan) return;
+                      handleChangePlan(activeSubscription.id, plan.id);
+                    }}
+                    disabled={isCurrentPlan || changingId === activeSubscription.id}
+                    className="btn-primary w-full mt-4"
+                  >
+                    {isCurrentPlan ? "Aktualny plan" : changingId === activeSubscription.id ? "Aktualizacja..." : "Zmień plan"}
+                  </button>
+                ) : (
+                  <button onClick={() => handleBuy(plan)} disabled={buying === plan.id} className="btn-primary w-full mt-4">
+                    {buying === plan.id ? "Przekierowanie..." : "Kup plan"}
+                  </button>
+                )}
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
 
-      <h2 className="font-display text-lg font-semibold text-white mb-4">Your Subscriptions</h2>
+      <h2 className="font-display text-lg font-semibold text-white mb-4">Twoja subskrypcja</h2>
       <div className="space-y-4">
         {loading ? [1,2].map((i) => <div key={i} className="glass-card h-40 animate-pulse" />) : subs.length === 0 ? (
           <div className="glass-card px-6 py-16 text-center text-sm text-white/30">No subscriptions yet. Purchase a plan above to get started.</div>
@@ -145,7 +160,7 @@ export default function ClientSubscriptionsPage() {
                 </div>
                 {s.status === "active" && !s.cancelAt && (
                   <button onClick={() => setCancelId(s.id)} className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-all">
-                    Cancel
+                    Anuluj subskrypcję
                   </button>
                 )}
               </div>
@@ -172,13 +187,13 @@ export default function ClientSubscriptionsPage() {
                     onChange={(e) => setSelectedPlan((prev) => ({ ...prev, [s.id]: e.target.value }))}
                     className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-sm text-white"
                   >
-                    <option value="">Select plan</option>
+                    <option value="">Wybierz plan</option>
                     {BILLING_PLANS.map((plan) => (
                       <option key={plan.id} value={plan.id}>{plan.name}</option>
                     ))}
                   </select>
-                  <button onClick={() => handleChangePlan(s.id)} disabled={!selectedPlan[s.id] || changingId === s.id} className="btn-ghost">
-                    {changingId === s.id ? "Updating..." : "Change plan"}
+                  <button onClick={() => handleChangePlan(s.id, selectedPlan[s.id] || "")} disabled={!selectedPlan[s.id] || changingId === s.id} className="btn-ghost">
+                    {changingId === s.id ? "Aktualizacja..." : "Zmień plan"}
                   </button>
                 </div>
               )}
@@ -190,11 +205,11 @@ export default function ClientSubscriptionsPage() {
       {cancelId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="glass-card w-full max-w-sm p-6 animate-fade-in">
-            <h3 className="font-display text-lg font-semibold text-white">Cancel Subscription</h3>
+            <h3 className="font-display text-lg font-semibold text-white">Anuluj subskrypcję</h3>
             <p className="mt-2 text-sm text-white/40">Your subscription will remain active until the end of the current billing period.</p>
             <div className="mt-6 flex gap-3">
-              <button onClick={() => setCancelId(null)} className="btn-ghost flex-1">Keep</button>
-              <button onClick={() => handleCancel(cancelId)} disabled={cancelling} className="flex-1 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-all disabled:opacity-50">{cancelling ? "Cancelling..." : "Cancel Subscription"}</button>
+              <button onClick={() => setCancelId(null)} className="btn-ghost flex-1">Zachowaj</button>
+              <button onClick={() => handleCancel(cancelId)} disabled={cancelling} className="flex-1 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-all disabled:opacity-50">{cancelling ? "Anulowanie..." : "Anuluj subskrypcję"}</button>
             </div>
           </div>
         </div>

@@ -44,12 +44,12 @@ export function useTranslation() {
     } catch {}
   }, []);
 
-  // 🔥 TU BYŁ PROBLEM — poprawione
-const translate = useCallback(
-  (key: string, vars?: Record<string, string>) =>
-    t(key, vars),
-  []
-);
+  // ✅ POPRAWIONE — przekazujemy LANG
+  const translate = useCallback(
+    (key: string, vars?: Record<string, string>) =>
+      t(lang, key, vars),
+    [lang]
+  );
 
   return { t: translate, lang, setLang };
 }

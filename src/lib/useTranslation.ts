@@ -45,11 +45,11 @@ export function useTranslation() {
   }, []);
 
   // 🔥 TU BYŁ PROBLEM — poprawione
-  const translate = useCallback(
-    (key: string, vars?: Record<string, string>) =>
-      t(lang, key, vars),
-    [lang]
-  );
+const translate = useCallback(
+  (key: string, vars?: Record<string, string>) =>
+    t(key, vars),
+  []
+);
 
   return { t: translate, lang, setLang };
 }

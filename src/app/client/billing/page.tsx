@@ -1,27 +1,49 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useTranslation } from "@/lib/useTranslation";
 
+interface SubData {
+  id: number; status: string; plan: string; currentPeriodEnd: string | null; cancelAt: string | null;
+  product: { name: string; code: string; priceCents: number | null; paymentType: string } | null;
+  license: { key: string; domain: string; status: string; expiresAt: string } | null;
+}
+interface Invoice { id: string; date: string; amount: number; status: string; url: string | null; }
 interface Addon { id: number; type: string; amount: number; status: string; meta: string | null; createdAt: string; }
 
 const addonTypes = [
-  { type: "sms_pack", name: "SMS Package", desc: "500 SMS credits for notifications", icon: "💬", amount: 500 },
+  { type: "sms_pack", name: "SMS Package", desc: "500 SMS credits", icon: "💬", amount: 500 },
   { type: "ai_credits", name: "AI Credits", desc: "1000 AI response credits", icon: "🤖", amount: 1000 },
 ];
 
+const statusColors: Record<string, string> = {
+  active: "bg-emerald-500/10 text-emerald-400",
+  past_due: "bg-amber-500/10 text-amber-400",
+  canceled: "bg-red-500/10 text-red-400",
+  paid: "bg-emerald-500/10 text-emerald-400",
+  open: "bg-amber-500/10 text-amber-400",
+};
+
 export default function ClientBillingPage() {
-  const { t } = useTranslation();
+  const [sub, setSub] = useState<SubData | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
   const [buyingType, setBuyingType] = useState<string | null>(null);
 
-  const loadAddons = useCallback(() => {
-    fetch("/api/client/addons").then((r) => r.json()).then((d) => setAddons(d.addons || [])).catch(console.error).finally(() => setLoading(false));
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch("/api/client/billing").then(r => r.json()),
+      fetch("/api/client/addons").then(r => r.json()),
+    ]).then(([billingData, addonData]) => {
+      setSub(billingData.subscription || null);
+      setInvoices(billingData.invoices || []);
+      setAddons(addonData.addons || []);
+    }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { loadAddons(); }, [loadAddons]);
+  useEffect(() => { load(); }, [load]);
 
   const openPortal = async () => {
     setPortalLoading(true);
@@ -30,34 +52,95 @@ export default function ClientBillingPage() {
       const data = await res.json();
       if (data.url) { window.location.href = data.url; }
       else { alert(data.error || "Could not open billing portal"); setPortalLoading(false); }
-    } catch { alert(t("network_error")); setPortalLoading(false); }
+    } catch { alert("Network error"); setPortalLoading(false); }
   };
 
   const buyAddon = async (type: string) => {
     setBuyingType(type);
     try {
       const res = await fetch("/api/client/addons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type }) });
-      const data = await res.json();
-      if (res.ok) { loadAddons(); } else { alert(data.error || "Failed"); }
-    } catch { alert(t("network_error")); }
+      if (res.ok) { load(); } else { const d = await res.json(); alert(d.error || "Failed"); }
+    } catch { alert("Network error"); }
     finally { setBuyingType(null); }
   };
+
+  if (loading) {
+    return (
+      <div className="animate-fade-in pt-8 lg:pt-0">
+        <div className="h-8 w-48 rounded-lg bg-white/[0.06] animate-pulse mb-8" />
+        <div className="glass-card h-48 animate-pulse mb-6" />
+        <div className="glass-card h-64 animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in">
       <div className="mb-8 pt-8 lg:pt-0">
-        <h1 className="font-display text-2xl font-bold tracking-tight text-white">{t("billing_title")}</h1>
-        <p className="mt-1 text-sm text-white/40">{t("billing_desc")}</p>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-white">Billing</h1>
+        <p className="mt-1 text-sm text-white/40">Manage payments, invoices, and subscription</p>
       </div>
 
-      {/* Subscription Management */}
+      {/* ━━━ Current Subscription ━━━ */}
+      {sub ? (
+        <div className="glass-card overflow-hidden mb-6">
+          <div className="border-b border-white/[0.05] px-6 py-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-white/30">Current Subscription</p>
+          </div>
+          <div className="p-6">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 text-xl">
+                  {sub.product?.paymentType === "subscription" ? "🔄" : "💳"}
+                </div>
+                <div>
+                  <h2 className="font-display text-lg font-semibold text-white">{sub.product?.name || sub.plan}</h2>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${statusColors[sub.status] || "bg-white/[0.06] text-white/40"}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${sub.status === "active" ? "bg-emerald-400" : sub.status === "past_due" ? "bg-amber-400" : "bg-red-400"}`} />
+                      {sub.status}
+                    </span>
+                    {sub.product?.priceCents && (
+                      <span className="text-sm font-semibold text-white/60">${(sub.product.priceCents / 100).toFixed(2)}/mo</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-5 border-t border-white/[0.05]">
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-white/25 mb-1">Next Renewal</p>
+                <p className="text-sm font-medium text-white/70">{sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "—"}</p>
+                {sub.cancelAt && <p className="text-[11px] text-red-400 mt-0.5">Cancels on {new Date(sub.cancelAt).toLocaleDateString()}</p>}
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-white/25 mb-1">License</p>
+                {sub.license ? (
+                  <code className="font-mono text-xs text-[#5f83f4]">{sub.license.key}</code>
+                ) : <p className="text-xs text-white/30">—</p>}
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-white/25 mb-1">License Expires</p>
+                <p className="text-sm text-white/60">{sub.license?.expiresAt ? new Date(sub.license.expiresAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "—"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="glass-card p-6 mb-6 text-center">
+          <p className="text-sm text-white/30">No active subscription. Visit the <a href="/client/subscriptions" className="text-[#5f83f4] hover:underline">Subscriptions</a> page to purchase a plan.</p>
+        </div>
+      )}
+
+      {/* ━━━ Stripe Portal ━━━ */}
       <div className="glass-card overflow-hidden mb-6">
         <div className="p-6">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-violet-600/10 text-xl">💳</div>
             <div className="flex-1">
-              <h2 className="font-display text-base font-semibold text-white">{t("stripe_portal")}</h2>
-              <p className="mt-1 text-sm text-white/40 leading-relaxed">{t("stripe_portal_desc")}</p>
+              <h2 className="font-display text-base font-semibold text-white">Manage Subscription</h2>
+              <p className="mt-1 text-sm text-white/40 leading-relaxed">Update payment method, view invoices, change plan, or cancel — all in one place.</p>
               <div className="mt-4 flex items-center gap-3">
                 <button onClick={openPortal} disabled={portalLoading} className="btn-primary">
                   {portalLoading ? (
@@ -65,18 +148,57 @@ export default function ClientBillingPage() {
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-                      {t("manage_payment")}
+                      Zarządzaj płatnością
                     </>
                   )}
                 </button>
+                <span className="text-[11px] text-white/20">Stripe billing portal</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Addons */}
-      <h2 className="font-display text-lg font-semibold text-white mb-4">{t("add_ons")}</h2>
+      {/* ━━━ Payment History ━━━ */}
+      {invoices.length > 0 && (
+        <div className="mb-6">
+          <h2 className="font-display text-lg font-semibold text-white mb-4">Payment History</h2>
+          <div className="glass-card overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/[0.05]">
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Date</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Amount</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Status</th>
+                  <th className="px-6 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-white/30">Invoice</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((inv) => (
+                  <tr key={inv.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4 text-sm text-white/60">{new Date(inv.date).toLocaleDateString()}</td>
+                    <td className="px-6 py-4"><span className="font-mono text-sm font-semibold text-white/80">${inv.amount.toFixed(2)}</span></td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${statusColors[inv.status] || "bg-white/[0.06] text-white/40"}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${inv.status === "paid" ? "bg-emerald-400" : "bg-amber-400"}`} />
+                        {inv.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {inv.url ? (
+                        <a href={inv.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#5f83f4] hover:underline">View →</a>
+                      ) : <span className="text-xs text-white/20">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ━━━ Addons ━━━ */}
+      <h2 className="font-display text-lg font-semibold text-white mb-4">Add-ons</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {addonTypes.map((a) => (
           <div key={a.type} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">
@@ -87,45 +209,45 @@ export default function ClientBillingPage() {
                 <p className="mt-1 text-xs text-white/40">{a.desc}</p>
               </div>
               <button onClick={() => buyAddon(a.type)} disabled={buyingType === a.type} className="btn-ghost px-4 py-2 text-xs">
-                {buyingType === a.type ? t("adding") : t("add")}
+                {buyingType === a.type ? "Adding..." : "Add"}
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Purchased addons */}
-      <h2 className="font-display text-lg font-semibold text-white mb-4">{t("your_addons")}</h2>
-      <div className="glass-card overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-white/[0.05]">
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Type</th>
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Amount</th>
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">{t("status")}</th>
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? [1,2].map((i) => (
-              <tr key={i} className="border-b border-white/[0.03]">{[1,2,3,4].map((j) => <td key={j} className="px-6 py-4"><div className="h-4 w-16 rounded bg-white/[0.04] animate-pulse" /></td>)}</tr>
-            )) : addons.length === 0 ? (
-              <tr><td colSpan={4} className="px-6 py-12 text-center text-sm text-white/30">{t("no_addons")}</td></tr>
-            ) : addons.map((a) => (
-              <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                <td className="px-6 py-4 text-sm text-white/70">{a.meta || a.type}</td>
-                <td className="px-6 py-4"><span className="font-mono text-sm text-emerald-400">{a.amount.toLocaleString()}</span></td>
-                <td className="px-6 py-4">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />{a.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-sm text-white/40">{new Date(a.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Purchased addons table */}
+      {addons.length > 0 && (
+        <>
+          <h2 className="font-display text-lg font-semibold text-white mb-4">Your Add-ons</h2>
+          <div className="glass-card overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/[0.05]">
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Type</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Amount</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Status</th>
+                  <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-white/30">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {addons.map((a) => (
+                  <tr key={a.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-6 py-4 text-sm text-white/70">{a.meta || a.type}</td>
+                    <td className="px-6 py-4"><span className="font-mono text-sm text-emerald-400">{a.amount.toLocaleString()}</span></td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />{a.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-white/40">{new Date(a.createdAt).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }

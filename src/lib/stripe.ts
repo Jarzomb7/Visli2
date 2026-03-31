@@ -2,30 +2,21 @@ import Stripe from "stripe";
 import { getSetting } from "./settings";
 import { prisma } from "./prisma";
 
-const globalForStripe = globalThis as unknown as {
-  _stripeClient: Stripe | undefined;
-  _stripeKey: string | undefined;
-};
+let _stripe: Stripe | null = null;
 
 export async function getStripe(): Promise<Stripe> {
-  const key = process.env.STRIPE_SECRET_KEY || await getSetting("STRIPE_SECRET_KEY", "");
-  if (!key) throw new Error("[STRIPE] STRIPE_SECRET_KEY not configured");
-
-  if (globalForStripe._stripeClient && globalForStripe._stripeKey === key) {
-    return globalForStripe._stripeClient;
-  }
-  globalForStripe._stripeClient = new Stripe(key, { typescript: true });
-  globalForStripe._stripeKey = key;
-  return globalForStripe._stripeClient;
+  if (_stripe) return _stripe;
+  const key = await getSetting("STRIPE_SECRET_KEY", process.env.STRIPE_SECRET_KEY || "");
+  _stripe = new Stripe(key, { typescript: true });
+  return _stripe;
 }
 
 export async function getWebhookSecret(): Promise<string> {
-  return process.env.STRIPE_WEBHOOK_SECRET || await getSetting("STRIPE_WEBHOOK_SECRET", "");
+  return getSetting("STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET || "");
 }
 
 export function resetStripeClient(): void {
-  globalForStripe._stripeClient = undefined;
-  globalForStripe._stripeKey = undefined;
+  _stripe = null;
 }
 
 export function isValidStripePriceId(val: string): boolean {

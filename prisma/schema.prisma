@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -14,8 +13,8 @@ model User {
   password  String
   role      String   @default("client")
   name      String?
-  language  String   @default("pl")
   stripeCustomerId String? @unique @map("stripe_customer_id")
+  language String  @default("pl")
   createdAt DateTime @default(now()) @map("created_at")
   addons    Addon[]
   subscriptions Subscription[]
@@ -32,19 +31,16 @@ model License {
   plan         String     @default("basic")
   features     String[]   @default([])
   email        String?
-  userId       Int?       @map("user_id")
   domainLocked Boolean    @default(false) @map("domain_locked")
   stripeSubId  String?    @map("stripe_sub_id")
   expiresAt    DateTime   @map("expires_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   productId    Int?       @map("product_id")
-  product      Product?   @relation(fields: [productId], references: [id])
+  product      Product?       @relation(fields: [productId], references: [id])
   usageLogs    UsageLog[]
   subscription Subscription?
 
   @@index([email])
-  @@index([userId])
-  @@index([stripeSubId])
   @@map("licenses")
 }
 
@@ -82,7 +78,7 @@ model Subscription {
   email                String
   userId               Int?      @map("user_id")
   user                 User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeCustomerId     String?   @unique @map("stripe_customer_id")
   stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
   stripePriceId        String?   @map("stripe_price_id")
   status               String    @default("incomplete")
@@ -100,7 +96,6 @@ model Subscription {
   @@index([email])
   @@index([userId])
   @@index([status])
-  @@index([stripeCustomerId])
   @@map("subscriptions")
 }
 

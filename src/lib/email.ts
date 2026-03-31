@@ -91,6 +91,7 @@ export async function sendWelcomeEmail(params: {
     app_name: appName,
     app_url: appUrl,
     login_url: `${appUrl}/login`,
+    panel_url: `${appUrl}/client/dashboard`,
   };
 
   // Try DB template first
@@ -129,7 +130,7 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   const appName = await getSetting("APP_NAME", "VISLI");
   const resetUrl = `${appUrl}/reset-password?token=${token}`;
 
-  const vars = { email, reset_url: resetUrl, app_name: appName, app_url: appUrl };
+  const vars = { email, reset_url: resetUrl, app_name: appName, app_url: appUrl, panel_url: `${appUrl}/client/dashboard` };
   const sent = await sendTemplateEmail("password-reset", email, vars);
   if (sent) return true;
 

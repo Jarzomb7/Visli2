@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -10,24 +10,34 @@ export async function GET() {
     if (!session) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-
-    // Try to fetch language (safe — column may not exist before db:push)
-    let language = "pl";
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: session.id },
-        select: { language: true },
-      });
-      if (user?.language) language = user.language;
-    } catch {
-      // language column doesn't exist yet — use default
-    }
-
-    return NextResponse.json({
-      user: { id: session.id, email: session.email, role: session.role, language },
+    const user = await prisma.user.findUnique({
+      where: { id: session.id },
+      select: { id: true, email: true, role: true, language: true },
     });
+    return NextResponse.json({ user });
   } catch (err) {
     console.error("[ME] Error:", err);
     return NextResponse.json({ error: "Auth check failed" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+    const body = await request.json();
+    if (body.language && (body.language === "pl" || body.language === "en")) {
+      await prisma.user.update({
+        where: { id: session.id },
+        data: { language: body.language },
+      });
+      return NextResponse.json({ success: true });
+    }
+    return NextResponse.json({ error: "Invalid" }, { status: 400 });
+  } catch (err) {
+    console.error("[ME] PATCH Error:", err);
+    return NextResponse.json({ error: "Failed" }, { status: 500 });
   }
 }

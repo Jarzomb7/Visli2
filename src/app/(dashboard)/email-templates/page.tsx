@@ -15,6 +15,7 @@ const VARIABLES = [
   { name: "{{app_url}}", desc: "App URL" },
   { name: "{{login_url}}", desc: "Login page URL" },
   { name: "{{reset_url}}", desc: "Password reset URL" },
+  { name: "{{panel_url}}", desc: "Client panel URL" },
 ];
 
 export default function EmailTemplatesPage() {
@@ -61,7 +62,7 @@ export default function EmailTemplatesPage() {
 
   const previewHtml = () => {
     let result = body;
-    const testVars: Record<string, string> = { email: "user@example.com", password: "SecurePass123!", license_key: "VISLI-ABCD-1234-EFGH-5678", domain: "example.com", plan: "subscription", product_name: "Booking System", app_name: "VISLI", app_url: "https://visli.io", login_url: "https://visli.io/login", reset_url: "https://visli.io/reset-password?token=demo" };
+    const testVars: Record<string, string> = { email: "user@example.com", password: "SecurePass123!", license_key: "VISLI-ABCD-1234-EFGH-5678", domain: "example.com", plan: "subscription", product_name: "Booking System", app_name: "VISLI", app_url: "https://visli.io", login_url: "https://visli.io/login", reset_url: "https://visli.io/reset-password?token=demo", panel_url: "https://visli.io/client/dashboard" };
     for (const [key, value] of Object.entries(testVars)) result = result.replace(new RegExp(`{{${key}}}`, "g"), value);
     return result;
   };

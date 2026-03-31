@@ -33,12 +33,12 @@ export default function Page() {
   }, []);
 
   const buyPlan = async (planId: number) => {
-    const res = await fetch("/api/stripe/checkout", {
+    const response = await fetch("/api/stripe/checkout", {
       method: "POST",
       body: JSON.stringify({ planId }),
     });
 
-    const data = await res.json();
+    const data = await response.json();
     if (data.url) {
       window.location.href = data.url;
     }
@@ -51,7 +51,6 @@ export default function Page() {
       <h1>Subskrypcja</h1>
       {subs.length > 0 && <p>Aktywne subskrypcje: {subs.length}</p>}
       {plans.length === 0 && <p>Brak planów</p>}
-
       {plans.map((plan) => (
         <div key={plan.id}>
           <h2>{plan.name}</h2>

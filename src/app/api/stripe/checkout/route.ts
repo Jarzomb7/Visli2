@@ -4,9 +4,9 @@ import { getStripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json() as { email?: string; planId?: number; addonPackageId?: string };
+    const body = (await request.json()) as { email?: string; planId?: number; addonPackageId?: string };
     const { email, planId, addonPackageId } = body;
 
     const stripe = await getStripe();

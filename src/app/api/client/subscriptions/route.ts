@@ -9,13 +9,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const subscriptions = await prisma.subscription.findMany({
-    where: {
-      OR: [{ email: session.email }, { userId: session.id }],
-    },
-    include: {
-      license: true,
-      product: true,
-    },
+    where: { OR: [{ email: session.email }, { userId: session.id }] },
+    include: { license: true, product: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -38,17 +33,18 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  if (!body.subscriptionId || !body.planId) {
+  const { subscriptionId, planId } = body;
+  if (!subscriptionId || !planId) {
     return NextResponse.json({ error: "subscriptionId and planId are required" }, { status: 400 });
   }
 
-  const subscription = await prisma.subscription.findUnique({ where: { id: body.subscriptionId } });
+  const subscription = await prisma.subscription.findUnique({ where: { id: subscriptionId } });
   if (!subscription || (subscription.email !== session.email && subscription.userId !== session.id)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const plan = await prisma.plan.findUnique({ where: { id: body.planId } });
-  if (!plan || !plan.isActive || !plan.stripePriceId) {
+  const plan = await prisma.plan.findUnique({ where: { id: planId } });
+  if (!plan || !plan.stripePriceId || !plan.isActive) {
     return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
   }
 

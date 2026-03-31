@@ -22,26 +22,23 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const load = async () => {
-      const data = await fetch("/api/client/subscriptions").then((r) => r.json());
+    const loadData = async () => {
+      const data = await fetch("/api/client/subscriptions").then((res) => res.json());
       setPlans(data.plans || []);
       setSubs(data.subscriptions || []);
       setLoading(false);
     };
 
-    load().catch(() => setLoading(false));
+    loadData().catch(() => setLoading(false));
   }, []);
 
   const buyPlan = async (planId: number) => {
-    const response = await fetch("/api/stripe/checkout", {
+    const res = await fetch("/api/stripe/checkout", {
       method: "POST",
       body: JSON.stringify({ planId }),
     });
-
-    const data = await response.json();
-    if (data.url) {
-      window.location.href = data.url;
-    }
+    const data = await res.json();
+    if (data.url) window.location.href = data.url;
   };
 
   if (loading) return <div>Loading...</div>;

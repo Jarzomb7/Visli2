@@ -8,16 +8,17 @@ export async function GET() {
   const session = await getClientSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const subscriptions = await prisma.subscription.findMany({
-    where: { OR: [{ email: session.email }, { userId: session.id }] },
-    include: { license: true, product: true },
-    orderBy: { createdAt: "desc" },
-  });
-
-  const plans = await prisma.plan.findMany({
-    where: { isActive: true },
-    orderBy: { priceMonthly: "asc" },
-  });
+  const [subscriptions, plans] = await Promise.all([
+    prisma.subscription.findMany({
+      where: { OR: [{ email: session.email }, { userId: session.id }] },
+      include: { license: true, product: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.plan.findMany({
+      where: { isActive: true },
+      orderBy: { priceMonthly: "asc" },
+    }),
+  ]);
 
   return NextResponse.json({ subscriptions, plans });
 }
@@ -33,18 +34,20 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { subscriptionId, planId } = body;
-  if (!subscriptionId || !planId) {
+  if (!body.subscriptionId || !body.planId) {
     return NextResponse.json({ error: "subscriptionId and planId are required" }, { status: 400 });
   }
 
-  const subscription = await prisma.subscription.findUnique({ where: { id: subscriptionId } });
+  const [subscription, plan] = await Promise.all([
+    prisma.subscription.findUnique({ where: { id: body.subscriptionId } }),
+    prisma.plan.findUnique({ where: { id: body.planId } }),
+  ]);
+
   if (!subscription || (subscription.email !== session.email && subscription.userId !== session.id)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const plan = await prisma.plan.findUnique({ where: { id: planId } });
-  if (!plan || !plan.stripePriceId || !plan.isActive) {
+  if (!plan || !plan.isActive || !plan.stripePriceId) {
     return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
   }
 

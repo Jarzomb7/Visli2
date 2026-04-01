@@ -21,29 +21,51 @@ function generatePassword(): string {
   return pw;
 }
 
-async function ensureUserExists(email: string, stripeCustomerId?: string): Promise<{ userId: number; plainPassword: string | null; isNew: boolean }> {
+async function ensureUserExists(
+  email: string,
+  stripeCustomerId?: string,
+): Promise<{ userId: number; plainPassword: string | null; isNew: boolean }> {
   const cleanEmail = email.toLowerCase().trim();
   let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
   if (user) {
     if (stripeCustomerId && !user.stripeCustomerId) {
-      try { await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId } }); } catch {}
+      try {
+        await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId } });
+      } catch {}
     }
     return { userId: user.id, plainPassword: null, isNew: false };
   }
 
   const plainPassword = generatePassword();
   const hashed = await bcrypt.hash(plainPassword, 12);
-  user = await prisma.user.create({
-    data: { email: cleanEmail, password: hashed, role: "client", stripeCustomerId: stripeCustomerId || null },
-  });
-  return { userId: user.id, plainPassword, isNew: true };
+
+  try {
+    user = await prisma.user.create({
+      data: { email: cleanEmail, password: hashed, role: "client", stripeCustomerId: stripeCustomerId || null },
+    });
+    return { userId: user.id, plainPassword, isNew: true };
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === "P2002") {
+      user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (user) {
+        if (stripeCustomerId && !user.stripeCustomerId) {
+          try {
+            await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId } });
+          } catch {}
+        }
+        return { userId: user.id, plainPassword: null, isNew: false };
+      }
+    }
+    throw err;
+  }
 }
 
 async function resolveCheckoutPlan(priceId: string | null, fallbackPlan?: string): Promise<string> {
   if (priceId) {
     const mapped = await resolvePlanByPriceId(priceId);
     if (mapped) return mapped.planName.toLowerCase();
+
     const direct = await resolvePlanFromPriceId(priceId);
     if (direct) return direct;
   }
@@ -132,13 +154,15 @@ export async function handleSubscriptionCreated(sub: Stripe.Subscription) {
   const customerId = sub.customer as string;
   const resolved = await resolveFromSubscription(sub);
   const periodEnd = new Date(sub.current_period_end * 1000);
+
   let email = "";
   try {
-    const c = await (await getStripe()).customers.retrieve(customerId);
-    if (c && !c.deleted) email = (c as Stripe.Customer).email || "";
+    const customer = await (await getStripe()).customers.retrieve(customerId);
+    if (customer && !customer.deleted) email = (customer as Stripe.Customer).email || "";
   } catch {}
 
   if (!email) return;
+
   const { userId } = await ensureUserExists(email, customerId);
   const plan = resolved?.plan || "basic";
   const product = await ensureProductExists(resolved?.productCode || "BOOKING_SYSTEM");
@@ -198,6 +222,7 @@ export async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
       where: { stripeSubscriptionId: sub.id },
       include: { product: { select: { name: true } } },
     });
+
     if (subscription) {
       await sendRenewalReminderEmail({
         email: subscription.email,
@@ -217,6 +242,7 @@ export async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
     where: { stripeSubscriptionId: sub.id },
     include: { product: { select: { name: true } } },
   });
+
   if (subscription) {
     await sendCancellationEmail({
       email: subscription.email,
@@ -232,20 +258,20 @@ export async function handleInvoicePaid(invoice: Stripe.Invoice) {
   if (!subId) return;
 
   try {
-    const s = await (await getStripe()).subscriptions.retrieve(subId);
-    const end = new Date(s.current_period_end * 1000);
-    const r = await resolveFromSubscription(s);
+    const subscriptionFromStripe = await (await getStripe()).subscriptions.retrieve(subId);
+    const end = new Date(subscriptionFromStripe.current_period_end * 1000);
+    const resolved = await resolveFromSubscription(subscriptionFromStripe);
 
     await updateSubscriptionStatus({
       stripeSubscriptionId: subId,
       status: "active",
       currentPeriodEnd: end,
-      ...(r ? { plan: r.plan, stripePriceId: r.priceId, productCode: r.productCode } : {}),
+      ...(resolved ? { plan: resolved.plan, stripePriceId: resolved.priceId, productCode: resolved.productCode } : {}),
     });
 
     await syncLicenseFromSubscription({
       subscriptionId: subId,
-      plan: r?.plan || "basic",
+      plan: resolved?.plan || "basic",
       expiresAt: end,
       status: "active",
     });
@@ -254,6 +280,7 @@ export async function handleInvoicePaid(invoice: Stripe.Invoice) {
       where: { stripeSubscriptionId: subId },
       include: { product: { select: { name: true } } },
     });
+
     if (subscription) {
       await sendPaymentSuccessEmail({
         email: subscription.email,
@@ -278,6 +305,7 @@ export async function handleInvoiceFailed(invoice: Stripe.Invoice) {
     where: { stripeSubscriptionId: subId },
     include: { product: { select: { name: true } } },
   });
+
   if (subscription) {
     await sendPaymentFailedEmail({
       email: subscription.email,

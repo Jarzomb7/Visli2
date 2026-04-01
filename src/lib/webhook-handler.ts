@@ -1,278 +1,343 @@
 import { prisma } from "@/lib/prisma";
-import { getStripe, resolveFromSubscription, resolvePlanFromPriceId } from "@/lib/stripe";
-import { generateLicenseKey } from "@/lib/license";
+import { getStripe, resolveFromSubscription } from "@/lib/stripe";
 import {
-  sendCancellationEmail,
-  sendPaymentFailedEmail,
-  sendPaymentSuccessEmail,
-  sendRenewalReminderEmail,
-  sendWelcomeEmail,
+sendCancellationEmail,
+sendPaymentFailedEmail,
+sendPaymentSuccessEmail,
+sendRenewalReminderEmail,
+sendWelcomeEmail,
 } from "@/lib/email";
 import bcrypt from "bcryptjs";
 import Stripe from "stripe";
+import { ensureProductExists } from "@/lib/products";
+import { findOrCreateLicense, syncLicenseFromSubscription } from "@/lib/licensing";
+import { upsertSubscriptionRecord, updateSubscriptionStatus } from "@/lib/billing";
+import { resolvePlanByPriceId, supportsProduct } from "@/lib/plans";
 
 function generatePassword(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
-  let pw = "";
-  for (let i = 0; i < 12; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw;
+const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+let password = "";
+for (let i = 0; i < 12; i++) {
+password += chars[Math.floor(Math.random() * chars.length)];
+}
+return password;
 }
 
 async function ensureUserExists(
-  email: string,
-  stripeCustomerId?: string
+email: string,
+stripeCustomerId?: string,
 ): Promise<{ userId: number; plainPassword: string | null; isNew: boolean }> {
-  const cleanEmail = email.toLowerCase().trim();
-  let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+const cleanEmail = email.toLowerCase().trim();
+let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
-  if (user) {
-    if (stripeCustomerId && !user.stripeCustomerId) {
-      try { await prisma.user.update({ where: { id: user.id }, data: { stripeCustomerId } }); } catch {}
-    }
-    return { userId: user.id, plainPassword: null, isNew: false };
-  }
-
-  const plainPassword = generatePassword();
-  const hashed = await bcrypt.hash(plainPassword, 12);
-  try {
-    user = await prisma.user.create({
-      data: { email: cleanEmail, password: hashed, role: "client", stripeCustomerId: stripeCustomerId || null },
-    });
-    return { userId: user.id, plainPassword, isNew: true };
-  } catch (err: unknown) {
-    if ((err as { code?: string }).code === "P2002") {
-      user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      if (user) return { userId: user.id, plainPassword: null, isNew: false };
-    }
-    throw err;
-  }
+if (user) {
+if (stripeCustomerId && !user.stripeCustomerId) {
+try {
+await prisma.user.update({
+where: { id: user.id },
+data: { stripeCustomerId },
+});
+} catch {}
+}
+return { userId: user.id, plainPassword: null, isNew: false };
 }
 
-const PRODUCT_NAMES: Record<string, string> = { BOOKING_SYSTEM: "Booking System", CHATBOT_AI: "Chatbot AI" };
+const plainPassword = generatePassword();
+const hashedPassword = await bcrypt.hash(plainPassword, 12);
 
-async function ensureProduct(code: string) {
-  const c = code.toUpperCase();
-  return prisma.product.upsert({ where: { code: c }, update: {}, create: { name: PRODUCT_NAMES[c] || c, code: c } });
+try {
+user = await prisma.user.create({
+data: {
+email: cleanEmail,
+password: hashedPassword,
+role: "client",
+stripeCustomerId: stripeCustomerId || null,
+},
+});
+return { userId: user.id, plainPassword, isNew: true };
+} catch (err: unknown) {
+if ((err as { code?: string }).code === "P2002") {
+user = await prisma.user.findUnique({ where: { email: cleanEmail } });
+if (user) {
+if (stripeCustomerId && !user.stripeCustomerId) {
+try {
+await prisma.user.update({
+where: { id: user.id },
+data: { stripeCustomerId },
+});
+} catch {}
+}
+return { userId: user.id, plainPassword: null, isNew: false };
+}
+}
+throw err;
+}
+}
+
+async function resolveCheckoutPlan(priceId: string | null, fallbackPlan?: string): Promise<string> {
+if (priceId) {
+const mapped = await resolvePlanByPriceId(priceId);
+if (mapped) return mapped.planName.toLowerCase();
+}
+return fallbackPlan?.toLowerCase() || "basic";
 }
 
 export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  const email = session.customer_email || session.customer_details?.email || "";
-  const customerId = session.customer as string;
-  const subscriptionId = session.subscription as string;
-  const meta = session.metadata || {};
-  const productCode = (meta.productCode || "BOOKING_SYSTEM").toUpperCase();
-  const domain = meta.domain || "PENDING";
+const email = session.customer_email || session.customer_details?.email || "";
+const customerId = session.customer as string;
+const subscriptionId = session.subscription as string;
+const metadata = session.metadata || {};
+const productCode = (metadata.productCode || "BOOKING_SYSTEM").toUpperCase();
+const domain = metadata.domain || "PENDING";
 
-  if (!email) return;
+if (!email || !subscriptionId) return;
 
-  const existing = subscriptionId
-    ? await prisma.subscription.findUnique({ where: { stripeSubscriptionId: subscriptionId } })
-    : null;
-  if (existing) return;
+const existing = await prisma.subscription.findUnique({
+where: { stripeSubscriptionId: subscriptionId },
+});
+if (existing) return;
 
-  const { userId, plainPassword, isNew } = await ensureUserExists(email, customerId);
+const { userId, plainPassword, isNew } = await ensureUserExists(email, customerId);
 
-  let periodEnd = new Date(Date.now() + 30 * 86400000);
-  let stripePriceId: string | null = null;
-  if (subscriptionId) {
-    try {
-      const s = await (await getStripe()).subscriptions.retrieve(subscriptionId);
-      periodEnd = new Date(s.current_period_end * 1000);
-      stripePriceId = s.items?.data?.[0]?.price?.id || null;
-    } catch (e) { console.warn("[WEBHOOK] Sub fetch failed:", e); }
-  }
+let periodEnd = new Date(Date.now() + 30 * 86400000);
+let stripePriceId: string | null = null;
+try {
+const stripeSub = await (await getStripe()).subscriptions.retrieve(subscriptionId);
+periodEnd = new Date(stripeSub.current_period_end * 1000);
+stripePriceId = stripeSub.items?.data?.[0]?.price?.id || null;
+} catch {}
 
-  const plan = stripePriceId
-    ? (await resolvePlanFromPriceId(stripePriceId)) || meta.plan?.toLowerCase() || "basic"
-    : meta.plan?.toLowerCase() || "basic";
+const plan = await resolveCheckoutPlan(stripePriceId, metadata.plan);
+const product = await ensureProductExists(productCode);
 
-  const product = await ensureProduct(productCode);
+const planMapping = stripePriceId ? await resolvePlanByPriceId(stripePriceId) : null;
+if (planMapping && !supportsProduct(planMapping, productCode)) {
+console.warn("[WEBHOOK] plan/product mismatch", { plan: planMapping.planName, productCode });
+}
 
-  const existingLicense = subscriptionId
-    ? await prisma.license.findFirst({ where: { stripeSubId: subscriptionId }, orderBy: { createdAt: "desc" } })
-    : null;
+const license = await findOrCreateLicense({
+subscriptionId,
+email,
+productId: product.id,
+plan,
+expiresAt: periodEnd,
+domain,
+});
 
-  const license = existingLicense || await prisma.license.create({
-    data: {
-      key: generateLicenseKey(), domain, status: "active", plan, features: [],
-      email, domainLocked: domain !== "PENDING", stripeSubId: subscriptionId || null,
-      expiresAt: periodEnd, productId: product.id,
-    },
-  });
+await upsertSubscriptionRecord({
+stripeSubscriptionId: subscriptionId,
+email,
+userId,
+stripeCustomerId: customerId,
+stripePriceId,
+status: "active",
+plan,
+productCode,
+productId: product.id,
+currentPeriodEnd: periodEnd,
+licenseId: license.id,
+});
 
-  if (subscriptionId) {
-    await prisma.subscription.upsert({
-      where: { stripeSubscriptionId: subscriptionId },
-      update: {
-        status: "active",
-        plan,
-        productCode,
-        productId: product.id,
-        currentPeriodEnd: periodEnd,
-        stripeCustomerId: customerId,
-        stripePriceId,
-        licenseId: license.id,
-        userId,
-      },
-      create: {
-        email,
-        userId,
-        stripeCustomerId: customerId,
-        stripeSubscriptionId: subscriptionId,
-        stripePriceId,
-        status: "active",
-        plan,
-        productCode,
-        productId: product.id,
-        currentPeriodEnd: periodEnd,
-        licenseId: license.id,
-      },
-    });
-  }
-
-  if (isNew && plainPassword) {
-    await sendWelcomeEmail({
-      email,
-      password: plainPassword,
-      licenseKey: license.key,
-      domain,
-      plan,
-      productName: product.name,
-    });
-  }
+if (isNew && plainPassword) {
+await sendWelcomeEmail({
+email,
+password: plainPassword,
+licenseKey: license.key,
+domain,
+plan,
+productName: product.name,
+});
+}
 }
 
 export async function handleSubscriptionCreated(sub: Stripe.Subscription) {
-  const existing = await prisma.subscription.findUnique({ where: { stripeSubscriptionId: sub.id } });
-  if (existing) {
-    await prisma.subscription.update({
-      where: { stripeSubscriptionId: sub.id },
-      data: { status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete", currentPeriodEnd: new Date(sub.current_period_end * 1000) },
-    });
-    return;
-  }
+const existing = await prisma.subscription.findUnique({
+where: { stripeSubscriptionId: sub.id },
+});
+if (existing) {
+await updateSubscriptionStatus({
+stripeSubscriptionId: sub.id,
+status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete",
+currentPeriodEnd: new Date(sub.current_period_end * 1000),
+});
+return;
+}
 
-  const customerId = sub.customer as string;
-  const resolved = await resolveFromSubscription(sub);
-  const periodEnd = new Date(sub.current_period_end * 1000);
-  let email = "";
-  try {
-    const c = await (await getStripe()).customers.retrieve(customerId);
-    if (c && !c.deleted) email = (c as Stripe.Customer).email || "";
-  } catch {}
+const customerId = sub.customer as string;
+const resolved = await resolveFromSubscription(sub);
+const periodEnd = new Date(sub.current_period_end * 1000);
 
-  if (!email) return;
-  const { userId } = await ensureUserExists(email, customerId);
-  const plan = resolved?.plan || "basic";
-  const product = await ensureProduct(resolved?.productCode || "BOOKING_SYSTEM");
+let email = "";
+try {
+const customer = await (await getStripe()).customers.retrieve(customerId);
+if (customer && !customer.deleted) email = (customer as Stripe.Customer).email || "";
+} catch {}
 
-  const license = await prisma.license.create({
-    data: { key: generateLicenseKey(), domain: "PENDING", status: "active", plan, features: [], email, domainLocked: false, stripeSubId: sub.id, expiresAt: periodEnd, productId: product.id },
-  });
+if (!email) return;
 
-  await prisma.subscription.create({
-    data: { email, userId, stripeCustomerId: customerId, stripeSubscriptionId: sub.id, stripePriceId: resolved?.priceId || null, status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete", plan, productCode: resolved?.productCode || null, productId: product.id, currentPeriodEnd: periodEnd, licenseId: license.id },
-  });
+const { userId } = await ensureUserExists(email, customerId);
+const product = await ensureProductExists(resolved?.productCode || "BOOKING_SYSTEM");
+const plan = await resolveCheckoutPlan(resolved?.priceId || null, resolved?.plan || "basic");
+
+const license = await findOrCreateLicense({
+subscriptionId: sub.id,
+email,
+productId: product.id,
+plan,
+expiresAt: periodEnd,
+domain: "PENDING",
+});
+
+await upsertSubscriptionRecord({
+stripeSubscriptionId: sub.id,
+email,
+userId,
+stripeCustomerId: customerId,
+stripePriceId: resolved?.priceId || null,
+status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete",
+plan,
+productCode: resolved?.productCode || product.code,
+productId: product.id,
+currentPeriodEnd: periodEnd,
+licenseId: license.id,
+});
 }
 
 export async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
-  const periodEnd = new Date(sub.current_period_end * 1000);
-  const resolved = await resolveFromSubscription(sub);
-  const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000) : null;
+const periodEnd = new Date(sub.current_period_end * 1000);
+const resolved = await resolveFromSubscription(sub);
+const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000) : null;
+const resolvedPlan = await resolveCheckoutPlan(resolved?.priceId || null, resolved?.plan);
 
-  let status = "active";
-  if (sub.status === "past_due") status = "past_due";
-  else if (sub.status === "canceled" || sub.status === "unpaid") status = "canceled";
-  else if (sub.status === "incomplete" || sub.status === "incomplete_expired") status = "incomplete";
+let status = "active";
+if (sub.status === "past_due") status = "past_due";
+else if (sub.status === "canceled" || sub.status === "unpaid") status = "canceled";
+else if (sub.status === "incomplete" || sub.status === "incomplete_expired") status = "incomplete";
 
-  await prisma.subscription.updateMany({
-    where: { stripeSubscriptionId: sub.id },
-    data: { status, currentPeriodEnd: periodEnd, cancelAt, ...(resolved ? { plan: resolved.plan, stripePriceId: resolved.priceId, productCode: resolved.productCode } : {}) },
+await updateSubscriptionStatus({
+stripeSubscriptionId: sub.id,
+status,
+currentPeriodEnd: periodEnd,
+cancelAt,
+...(resolved
+? {
+plan: resolvedPlan,
+stripePriceId: resolved.priceId,
+productCode: resolved.productCode,
+}
+: {}),
+});
+
+const licenseStatus = status === "canceled" ? "expired" : status === "past_due" ? "suspended" : "active";
+await syncLicenseFromSubscription({
+subscriptionId: sub.id,
+plan: resolvedPlan || "basic",
+expiresAt: periodEnd,
+status: licenseStatus,
+});
+
+if (cancelAt) {
+const subscription = await prisma.subscription.findFirst({
+where: { stripeSubscriptionId: sub.id },
+include: { product: { select: { name: true } } },
+});
+
+if (subscription) {
+  await sendRenewalReminderEmail({
+    email: subscription.email,
+    plan: subscription.plan,
+    productName: subscription.product?.name || subscription.productCode || "VISLI",
+    renewalDate: subscription.currentPeriodEnd,
   });
-
-  let licStatus = "active";
-  if (status === "canceled") licStatus = "expired";
-  else if (status === "past_due") licStatus = "suspended";
-
-  const licData: Record<string, unknown> = { status: licStatus, expiresAt: periodEnd };
-  if (resolved) { licData.plan = resolved.plan; licData.features = []; }
-  await prisma.license.updateMany({ where: { stripeSubId: sub.id }, data: licData });
-
-  if (cancelAt) {
-    const subscription = await prisma.subscription.findFirst({
-      where: { stripeSubscriptionId: sub.id },
-      include: { product: { select: { name: true } } },
-    });
-    if (subscription) {
-      await sendRenewalReminderEmail({
-        email: subscription.email,
-        plan: subscription.plan,
-        productName: subscription.product?.name || subscription.productCode || "VISLI",
-        renewalDate: subscription.currentPeriodEnd,
-      });
-    }
-  }
+}
+}
 }
 
 export async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
-  await prisma.subscription.updateMany({ where: { stripeSubscriptionId: sub.id }, data: { status: "canceled" } });
-  await prisma.license.updateMany({ where: { stripeSubId: sub.id }, data: { status: "expired" } });
+await updateSubscriptionStatus({ stripeSubscriptionId: sub.id, status: "canceled" });
+await prisma.license.updateMany({ where: { stripeSubId: sub.id }, data: { status: "expired" } });
 
-  const subscription = await prisma.subscription.findFirst({
-    where: { stripeSubscriptionId: sub.id },
-    include: { product: { select: { name: true } } },
-  });
-  if (subscription) {
-    await sendCancellationEmail({
-      email: subscription.email,
-      plan: subscription.plan,
-      productName: subscription.product?.name || subscription.productCode || "VISLI",
-      renewalDate: subscription.currentPeriodEnd,
-    });
-  }
+const subscription = await prisma.subscription.findFirst({
+where: { stripeSubscriptionId: sub.id },
+include: { product: { select: { name: true } } },
+});
+
+if (subscription) {
+await sendCancellationEmail({
+email: subscription.email,
+plan: subscription.plan,
+productName: subscription.product?.name || subscription.productCode || "VISLI",
+renewalDate: subscription.currentPeriodEnd,
+});
+}
 }
 
 export async function handleInvoicePaid(invoice: Stripe.Invoice) {
-  const subId = invoice.subscription as string;
-  if (!subId) return;
-  try {
-    const s = await (await getStripe()).subscriptions.retrieve(subId);
-    const end = new Date(s.current_period_end * 1000);
-    const r = await resolveFromSubscription(s);
-    await prisma.subscription.updateMany({ where: { stripeSubscriptionId: subId }, data: { status: "active", currentPeriodEnd: end, ...(r ? { plan: r.plan, stripePriceId: r.priceId } : {}) } });
-    await prisma.license.updateMany({ where: { stripeSubId: subId }, data: { status: "active", expiresAt: end, ...(r ? { plan: r.plan, features: [] } : {}) } });
+const subId = invoice.subscription as string;
+if (!subId) return;
 
-    const subscription = await prisma.subscription.findFirst({
-      where: { stripeSubscriptionId: subId },
-      include: { product: { select: { name: true } } },
-    });
-    if (subscription) {
-      await sendPaymentSuccessEmail({
-        email: subscription.email,
-        plan: subscription.plan,
-        productName: subscription.product?.name || subscription.productCode || "VISLI",
-        renewalDate: subscription.currentPeriodEnd,
-      });
-    }
-  } catch (e) { console.error("[WEBHOOK] Renewal error:", e); }
+try {
+const stripeSub = await (await getStripe()).subscriptions.retrieve(subId);
+const end = new Date(stripeSub.current_period_end * 1000);
+const resolved = await resolveFromSubscription(stripeSub);
+const resolvedPlan = await resolveCheckoutPlan(resolved?.priceId || null, resolved?.plan);
+
+await updateSubscriptionStatus({
+  stripeSubscriptionId: subId,
+  status: "active",
+  currentPeriodEnd: end,
+  ...(resolved
+    ? {
+        plan: resolvedPlan,
+        stripePriceId: resolved.priceId,
+        productCode: resolved.productCode,
+      }
+    : {}),
+});
+
+await syncLicenseFromSubscription({
+  subscriptionId: subId,
+  plan: resolvedPlan || "basic",
+  expiresAt: end,
+  status: "active",
+});
+
+const subscription = await prisma.subscription.findFirst({
+  where: { stripeSubscriptionId: subId },
+  include: { product: { select: { name: true } } },
+});
+
+if (subscription) {
+  await sendPaymentSuccessEmail({
+    email: subscription.email,
+    plan: subscription.plan,
+    productName: subscription.product?.name || subscription.productCode || "VISLI",
+    renewalDate: subscription.currentPeriodEnd,
+  });
+}
+} catch (err) {
+console.error("[WEBHOOK] invoice paid handler error:", err);
+}
 }
 
 export async function handleInvoiceFailed(invoice: Stripe.Invoice) {
-  const subId = invoice.subscription as string;
-  if (!subId) return;
-  await prisma.subscription.updateMany({ where: { stripeSubscriptionId: subId }, data: { status: "past_due" } });
-  await prisma.license.updateMany({ where: { stripeSubId: subId }, data: { status: "suspended" } });
+const subId = invoice.subscription as string;
+if (!subId) return;
 
-  const subscription = await prisma.subscription.findFirst({
-    where: { stripeSubscriptionId: subId },
-    include: { product: { select: { name: true } } },
-  });
-  if (subscription) {
-    await sendPaymentFailedEmail({
-      email: subscription.email,
-      plan: subscription.plan,
-      productName: subscription.product?.name || subscription.productCode || "VISLI",
-      renewalDate: subscription.currentPeriodEnd,
-    });
-  }
+await updateSubscriptionStatus({ stripeSubscriptionId: subId, status: "past_due" });
+await prisma.license.updateMany({ where: { stripeSubId: subId }, data: { status: "suspended" } });
+
+const subscription = await prisma.subscription.findFirst({
+where: { stripeSubscriptionId: subId },
+include: { product: { select: { name: true } } },
+});
+
+if (subscription) {
+await sendPaymentFailedEmail({
+email: subscription.email,
+plan: subscription.plan,
+productName: subscription.product?.name || subscription.productCode || "VISLI",
+renewalDate: subscription.currentPeriodEnd,
+});
+}
 }

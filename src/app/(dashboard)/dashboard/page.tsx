@@ -22,12 +22,16 @@ interface Stats {
 export default function DashboardPage() {
   const [data, setData] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
-      .then(setData)
-      .catch(console.error)
+      .then((payload) => {
+        if (payload?.error) throw new Error(payload.error);
+        setData(payload);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load dashboard"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -83,6 +87,13 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+
+      {error && (
+        <div className="mb-6 glass-card border border-red-500/20 bg-red-500/5 p-4">
+          <p className="text-sm text-red-300">{error}</p>
+          <button onClick={() => window.location.reload()} className="mt-3 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">Reload</button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
         {cards.map((c, i) => (
           <div key={i} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300">

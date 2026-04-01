@@ -8,7 +8,6 @@ interface EmailPayload {
   text?: string;
 }
 
-/** Send email via Resend API */
 export async function sendEmail(payload: EmailPayload): Promise<boolean> {
   try {
     const apiKey = await getSetting("RESEND_API_KEY", process.env.RESEND_API_KEY || "");
@@ -42,7 +41,6 @@ export async function sendEmail(payload: EmailPayload): Promise<boolean> {
   }
 }
 
-/** Replace {{variable}} placeholders in a template string */
 export function replaceVariables(template: string, vars: Record<string, string>): string {
   let result = template;
   for (const [key, value] of Object.entries(vars)) {
@@ -51,12 +49,7 @@ export function replaceVariables(template: string, vars: Record<string, string>)
   return result;
 }
 
-/** Load a template from DB by slug, replace variables, and send */
-export async function sendTemplateEmail(
-  slug: string,
-  to: string,
-  vars: Record<string, string>
-): Promise<boolean> {
+export async function sendTemplateEmail(slug: string, to: string, vars: Record<string, string>): Promise<boolean> {
   const template = await prisma.emailTemplate.findUnique({ where: { slug } });
   if (!template) {
     console.warn("[EMAIL] Template not found:", slug, "— using fallback");
@@ -69,7 +62,6 @@ export async function sendTemplateEmail(
   return sendEmail({ to, subject, html });
 }
 
-/** Send welcome email — uses DB template if it exists, otherwise built-in */
 export async function sendWelcomeEmail(params: {
   email: string;
   password: string;
@@ -94,37 +86,13 @@ export async function sendWelcomeEmail(params: {
     panel_url: `${appUrl}/client/dashboard`,
   };
 
-  // Try DB template first
   const sent = await sendTemplateEmail("welcome", params.email, vars);
   if (sent) return true;
 
-  // Built-in fallback
-  const html = `
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#060d2b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-<div style="text-align:center;margin-bottom:32px;">
-  <h1 style="color:#fff;font-size:24px;margin:0 0 8px;">Welcome to ${appName}!</h1>
-  <p style="color:#ffffff80;font-size:14px;margin:0;">Your subscription is now active.</p>
-</div>
-<div style="background:#0f1740;border:1px solid #ffffff10;border-radius:16px;padding:32px;margin-bottom:24px;">
-  <table style="width:100%;border-collapse:collapse;">
-    <tr><td style="padding:10px 0;color:#ffffff60;font-size:13px;border-bottom:1px solid #ffffff08;width:120px;">Email</td><td style="padding:10px 0;color:#5f83f4;font-size:13px;border-bottom:1px solid #ffffff08;font-family:monospace;">${params.email}</td></tr>
-    <tr><td style="padding:10px 0;color:#ffffff60;font-size:13px;border-bottom:1px solid #ffffff08;">Password</td><td style="padding:10px 0;color:#f59e0b;font-size:13px;border-bottom:1px solid #ffffff08;font-family:monospace;">${params.password}</td></tr>
-    <tr><td style="padding:10px 0;color:#ffffff60;font-size:13px;border-bottom:1px solid #ffffff08;">License Key</td><td style="padding:10px 0;color:#10b981;font-size:13px;border-bottom:1px solid #ffffff08;font-family:monospace;word-break:break-all;">${params.licenseKey}</td></tr>
-    <tr><td style="padding:10px 0;color:#ffffff60;font-size:13px;border-bottom:1px solid #ffffff08;">Product</td><td style="padding:10px 0;color:#ffffffcc;font-size:13px;border-bottom:1px solid #ffffff08;">${params.productName}</td></tr>
-    <tr><td style="padding:10px 0;color:#ffffff60;font-size:13px;">Plan</td><td style="padding:10px 0;color:#ffffffcc;font-size:13px;">${params.plan}</td></tr>
-  </table>
-</div>
-<div style="text-align:center;"><a href="${appUrl}/login" style="display:inline-block;background:linear-gradient(135deg,#3b5eee,#1e3fdb);color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:14px 32px;border-radius:12px;">Log In to Your Panel</a></div>
-</div>
-</body></html>`;
-
+  const html = `<p>Welcome to ${appName}.</p><p>Plan: ${params.plan}</p><p>License: ${params.licenseKey}</p><p><a href="${appUrl}/login">Log in</a></p>`;
   return sendEmail({ to: params.email, subject: `Welcome to ${appName}`, html });
 }
 
-/** Send password reset email */
 export async function sendPasswordResetEmail(email: string, token: string): Promise<boolean> {
   const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "https://visli.io");
   const appName = await getSetting("APP_NAME", "VISLI");
@@ -134,21 +102,51 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   const sent = await sendTemplateEmail("password-reset", email, vars);
   if (sent) return true;
 
-  const html = `
-<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#060d2b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-<div style="text-align:center;margin-bottom:32px;">
-  <h1 style="color:#fff;font-size:24px;margin:0 0 8px;">Reset Your Password</h1>
-  <p style="color:#ffffff80;font-size:14px;margin:0;">Click below to set a new password.</p>
-</div>
-<div style="text-align:center;margin-bottom:24px;">
-  <a href="${resetUrl}" style="display:inline-block;background:linear-gradient(135deg,#3b5eee,#1e3fdb);color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:14px 32px;border-radius:12px;">Reset Password</a>
-</div>
-<p style="color:#ffffff40;font-size:12px;text-align:center;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
-</div>
-</body></html>`;
-
+  const html = `<p>Reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p>`;
   return sendEmail({ to: email, subject: `${appName} — Password Reset`, html });
+}
+
+async function sendSubscriptionEventEmail(params: {
+  slug: string;
+  fallbackSubject: string;
+  email: string;
+  plan: string;
+  productName: string;
+  renewalDate?: Date | null;
+}): Promise<boolean> {
+  const appUrl = await getSetting("APP_URL", process.env.NEXT_PUBLIC_APP_URL || "https://visli.io");
+  const appName = await getSetting("APP_NAME", "VISLI");
+  const renewal = params.renewalDate ? params.renewalDate.toISOString().split("T")[0] : "—";
+
+  const vars = {
+    email: params.email,
+    plan: params.plan,
+    product_name: params.productName,
+    renewal_date: renewal,
+    app_name: appName,
+    app_url: appUrl,
+    panel_url: `${appUrl}/client/billing`,
+  };
+
+  const sent = await sendTemplateEmail(params.slug, params.email, vars);
+  if (sent) return true;
+
+  const html = `<p>${params.fallbackSubject}</p><p>Plan: ${params.plan}</p><p>Product: ${params.productName}</p><p>Renewal: ${renewal}</p><p><a href="${appUrl}/client/billing">Billing panel</a></p>`;
+  return sendEmail({ to: params.email, subject: `${appName} — ${params.fallbackSubject}`, html });
+}
+
+export async function sendPaymentSuccessEmail(params: { email: string; plan: string; productName: string; renewalDate?: Date | null }): Promise<boolean> {
+  return sendSubscriptionEventEmail({ slug: "payment-success", fallbackSubject: "Payment received", ...params });
+}
+
+export async function sendPaymentFailedEmail(params: { email: string; plan: string; productName: string; renewalDate?: Date | null }): Promise<boolean> {
+  return sendSubscriptionEventEmail({ slug: "payment-failed", fallbackSubject: "Payment failed", ...params });
+}
+
+export async function sendRenewalReminderEmail(params: { email: string; plan: string; productName: string; renewalDate?: Date | null }): Promise<boolean> {
+  return sendSubscriptionEventEmail({ slug: "renewal-reminder", fallbackSubject: "Renewal reminder", ...params });
+}
+
+export async function sendCancellationEmail(params: { email: string; plan: string; productName: string; renewalDate?: Date | null }): Promise<boolean> {
+  return sendSubscriptionEventEmail({ slug: "subscription-cancellation", fallbackSubject: "Subscription canceled", ...params });
 }

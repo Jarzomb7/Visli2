@@ -1,9 +1,18 @@
 import { prisma } from "@/lib/prisma";
-import { getStripe, resolveFromSubscription } from "@/lib/stripe";
-import { generateLicenseKey } from "@/lib/license";
-import { sendWelcomeEmail } from "@/lib/email";
+import { getStripe, resolveFromSubscription, resolvePlanFromPriceId } from "@/lib/stripe";
+import {
+  sendCancellationEmail,
+  sendPaymentFailedEmail,
+  sendPaymentSuccessEmail,
+  sendRenewalReminderEmail,
+  sendWelcomeEmail,
+} from "@/lib/email";
 import bcrypt from "bcryptjs";
 import Stripe from "stripe";
+import { ensureProductExists } from "@/lib/products";
+import { findOrCreateLicense, syncLicenseFromSubscription } from "@/lib/licensing";
+import { upsertSubscriptionRecord, updateSubscriptionStatus } from "@/lib/billing";
+import { resolvePlanByPriceId, supportsProduct } from "@/lib/plans";
 
 function generatePassword(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
@@ -12,11 +21,7 @@ function generatePassword(): string {
   return pw;
 }
 
-/** Race-safe: catches P2002 unique violation if two webhooks fire for same email */
-async function ensureUserExists(
-  email: string,
-  stripeCustomerId?: string
-): Promise<{ userId: number; plainPassword: string | null; isNew: boolean }> {
+async function ensureUserExists(email: string, stripeCustomerId?: string): Promise<{ userId: number; plainPassword: string | null; isNew: boolean }> {
   const cleanEmail = email.toLowerCase().trim();
   let user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
@@ -29,103 +34,97 @@ async function ensureUserExists(
 
   const plainPassword = generatePassword();
   const hashed = await bcrypt.hash(plainPassword, 12);
-  try {
-    user = await prisma.user.create({
-      data: { email: cleanEmail, password: hashed, role: "client", stripeCustomerId: stripeCustomerId || null },
-    });
-    console.log("[WEBHOOK] ✅ User CREATED:", cleanEmail, "id:", user.id);
-    return { userId: user.id, plainPassword, isNew: true };
-  } catch (err: unknown) {
-    if ((err as { code?: string }).code === "P2002") {
-      user = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      if (user) return { userId: user.id, plainPassword: null, isNew: false };
-    }
-    throw err;
+  user = await prisma.user.create({
+    data: { email: cleanEmail, password: hashed, role: "client", stripeCustomerId: stripeCustomerId || null },
+  });
+  return { userId: user.id, plainPassword, isNew: true };
+}
+
+async function resolveCheckoutPlan(priceId: string | null, fallbackPlan?: string): Promise<string> {
+  if (priceId) {
+    const mapped = await resolvePlanByPriceId(priceId);
+    if (mapped) return mapped.planName.toLowerCase();
+    const direct = await resolvePlanFromPriceId(priceId);
+    if (direct) return direct;
   }
+  return fallbackPlan?.toLowerCase() || "basic";
 }
-
-const PRODUCT_NAMES: Record<string, string> = { BOOKING_SYSTEM: "Booking System", CHATBOT_AI: "Chatbot AI" };
-
-async function ensureProduct(code: string) {
-  const c = code.toUpperCase();
-  return prisma.product.upsert({ where: { code: c }, update: {}, create: { name: PRODUCT_NAMES[c] || c, code: c } });
-}
-
-// ── CHECKOUT COMPLETED ───────────────────────────────────
 
 export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  console.log("[WEBHOOK] checkout.session.completed:", session.id);
   const email = session.customer_email || session.customer_details?.email || "";
   const customerId = session.customer as string;
   const subscriptionId = session.subscription as string;
   const meta = session.metadata || {};
-  const productCode = meta.productCode || "BOOKING_SYSTEM";
-  const plan = meta.plan || "basic";
+  const productCode = (meta.productCode || "BOOKING_SYSTEM").toUpperCase();
   const domain = meta.domain || "PENDING";
 
-  if (!email) { console.error("[WEBHOOK] ❌ No email:", session.id); return; }
-  console.log("[WEBHOOK] Email:", email, "Product:", productCode, "Plan:", plan);
+  if (!email || !subscriptionId) return;
 
-  if (subscriptionId) {
-    const existing = await prisma.subscription.findUnique({ where: { stripeSubscriptionId: subscriptionId } });
-    if (existing) { console.log("[WEBHOOK] ⚠️ Already processed:", subscriptionId); return; }
-  }
+  const existing = await prisma.subscription.findUnique({ where: { stripeSubscriptionId: subscriptionId } });
+  if (existing) return;
 
   const { userId, plainPassword, isNew } = await ensureUserExists(email, customerId);
-  console.log("[WEBHOOK] ✅ User:", userId, isNew ? "(NEW)" : "(existing)");
 
   let periodEnd = new Date(Date.now() + 30 * 86400000);
   let stripePriceId: string | null = null;
-  if (subscriptionId) {
-    try {
-      const s = await (await getStripe()).subscriptions.retrieve(subscriptionId);
-      periodEnd = new Date(s.current_period_end * 1000);
-      stripePriceId = s.items?.data?.[0]?.price?.id || null;
-    } catch (e) { console.warn("[WEBHOOK] Sub fetch failed:", e); }
-  }
-
-  const product = await ensureProduct(productCode);
-
-  const license = await prisma.license.create({
-    data: {
-      key: generateLicenseKey(), domain, status: "active", plan, features: [],
-      email, domainLocked: domain !== "PENDING", stripeSubId: subscriptionId || null,
-      expiresAt: periodEnd, productId: product.id,
-    },
-  });
-  console.log("[WEBHOOK] ✅ License CREATED:", license.key);
-
-
-  if (subscriptionId) {
-    await prisma.subscription.upsert({
-      where: { stripeSubscriptionId: subscriptionId },
-      update: { status: "active", plan, productCode, productId: product.id, currentPeriodEnd: periodEnd, stripeCustomerId: customerId, stripePriceId, licenseId: license.id, userId },
-      create: { email, userId, stripeCustomerId: customerId, stripeSubscriptionId: subscriptionId, stripePriceId, status: "active", plan, productCode, productId: product.id, currentPeriodEnd: periodEnd, licenseId: license.id },
-    });
-    console.log("[WEBHOOK] ✅ Subscription CREATED");
-  }
-
   try {
-    const sent = await sendWelcomeEmail({
-      email,
-      password: isNew && plainPassword ? plainPassword : "(use existing password)",
-      licenseKey: license.key, domain, plan, productName: product.name,
-    });
-    console.log("[WEBHOOK]", sent ? "✅ Email SENT" : "⚠️ Email skipped");
-  } catch (e) { console.error("[WEBHOOK] Email failed (non-fatal):", e); }
+    const s = await (await getStripe()).subscriptions.retrieve(subscriptionId);
+    periodEnd = new Date(s.current_period_end * 1000);
+    stripePriceId = s.items?.data?.[0]?.price?.id || null;
+  } catch (e) {
+    console.warn("[WEBHOOK] Sub fetch failed:", e);
+  }
 
-  console.log("[WEBHOOK] ✅ DONE for:", email);
+  const plan = await resolveCheckoutPlan(stripePriceId, meta.plan);
+  const product = await ensureProductExists(productCode);
+
+  const planMapping = stripePriceId ? await resolvePlanByPriceId(stripePriceId) : null;
+  if (planMapping && !supportsProduct(planMapping, productCode)) {
+    console.warn("[WEBHOOK] plan/product mismatch", { plan: planMapping.planName, productCode });
+  }
+
+  const license = await findOrCreateLicense({
+    subscriptionId,
+    email,
+    productId: product.id,
+    plan,
+    expiresAt: periodEnd,
+    domain,
+  });
+
+  await upsertSubscriptionRecord({
+    stripeSubscriptionId: subscriptionId,
+    email,
+    userId,
+    stripeCustomerId: customerId,
+    stripePriceId,
+    status: "active",
+    plan,
+    productCode,
+    productId: product.id,
+    currentPeriodEnd: periodEnd,
+    licenseId: license.id,
+  });
+
+  if (isNew && plainPassword) {
+    await sendWelcomeEmail({
+      email,
+      password: plainPassword,
+      licenseKey: license.key,
+      domain,
+      plan,
+      productName: product.name,
+    });
+  }
 }
 
-// ── SUBSCRIPTION CREATED ─────────────────────────────────
-
 export async function handleSubscriptionCreated(sub: Stripe.Subscription) {
-  console.log("[WEBHOOK] subscription.created:", sub.id);
   const existing = await prisma.subscription.findUnique({ where: { stripeSubscriptionId: sub.id } });
   if (existing) {
-    await prisma.subscription.update({
-      where: { stripeSubscriptionId: sub.id },
-      data: { status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete", currentPeriodEnd: new Date(sub.current_period_end * 1000) },
+    await updateSubscriptionStatus({
+      stripeSubscriptionId: sub.id,
+      status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete",
+      currentPeriodEnd: new Date(sub.current_period_end * 1000),
     });
     return;
   }
@@ -142,19 +141,31 @@ export async function handleSubscriptionCreated(sub: Stripe.Subscription) {
   if (!email) return;
   const { userId } = await ensureUserExists(email, customerId);
   const plan = resolved?.plan || "basic";
-  const product = await ensureProduct(resolved?.productCode || "BOOKING_SYSTEM");
+  const product = await ensureProductExists(resolved?.productCode || "BOOKING_SYSTEM");
 
-  const license = await prisma.license.create({
-    data: { key: generateLicenseKey(), domain: "PENDING", status: "active", plan, features: [], email, domainLocked: false, stripeSubId: sub.id, expiresAt: periodEnd, productId: product.id },
+  const license = await findOrCreateLicense({
+    subscriptionId: sub.id,
+    email,
+    productId: product.id,
+    plan,
+    expiresAt: periodEnd,
+    domain: "PENDING",
   });
 
-  await prisma.subscription.create({
-    data: { email, userId, stripeCustomerId: customerId, stripeSubscriptionId: sub.id, stripePriceId: resolved?.priceId || null, status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete", plan, productCode: resolved?.productCode || null, productId: product.id, currentPeriodEnd: periodEnd, licenseId: license.id },
+  await upsertSubscriptionRecord({
+    stripeSubscriptionId: sub.id,
+    email,
+    userId,
+    stripeCustomerId: customerId,
+    stripePriceId: resolved?.priceId || null,
+    status: sub.status === "active" || sub.status === "trialing" ? "active" : "incomplete",
+    plan,
+    productCode: resolved?.productCode || product.code,
+    productId: product.id,
+    currentPeriodEnd: periodEnd,
+    licenseId: license.id,
   });
-  console.log("[WEBHOOK] ✅ Sub+License CREATED for:", email);
 }
-
-// ── SUBSCRIPTION UPDATED ─────────────────────────────────
 
 export async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
   const periodEnd = new Date(sub.current_period_end * 1000);
@@ -166,50 +177,113 @@ export async function handleSubscriptionUpdated(sub: Stripe.Subscription) {
   else if (sub.status === "canceled" || sub.status === "unpaid") status = "canceled";
   else if (sub.status === "incomplete" || sub.status === "incomplete_expired") status = "incomplete";
 
-  await prisma.subscription.updateMany({
-    where: { stripeSubscriptionId: sub.id },
-    data: { status, currentPeriodEnd: periodEnd, cancelAt, ...(resolved ? { plan: resolved.plan, stripePriceId: resolved.priceId, productCode: resolved.productCode } : {}) },
+  await updateSubscriptionStatus({
+    stripeSubscriptionId: sub.id,
+    status,
+    currentPeriodEnd: periodEnd,
+    cancelAt,
+    ...(resolved ? { plan: resolved.plan, stripePriceId: resolved.priceId, productCode: resolved.productCode } : {}),
   });
 
-  let licStatus = "active";
-  if (status === "canceled") licStatus = "expired";
-  else if (status === "past_due") licStatus = "suspended";
+  const licenseStatus = status === "canceled" ? "expired" : status === "past_due" ? "suspended" : "active";
+  await syncLicenseFromSubscription({
+    subscriptionId: sub.id,
+    plan: resolved?.plan || "basic",
+    expiresAt: periodEnd,
+    status: licenseStatus,
+  });
 
-  const licData: Record<string, unknown> = { status: licStatus, expiresAt: periodEnd };
-  if (resolved) { licData.plan = resolved.plan; licData.features = []; }
-  await prisma.license.updateMany({ where: { stripeSubId: sub.id }, data: licData });
-  console.log("[WEBHOOK] ✅ Sub UPDATED:", sub.id, "→", status);
+  if (cancelAt) {
+    const subscription = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: sub.id },
+      include: { product: { select: { name: true } } },
+    });
+    if (subscription) {
+      await sendRenewalReminderEmail({
+        email: subscription.email,
+        plan: subscription.plan,
+        productName: subscription.product?.name || subscription.productCode || "VISLI",
+        renewalDate: subscription.currentPeriodEnd,
+      });
+    }
+  }
 }
-
-// ── SUBSCRIPTION DELETED ─────────────────────────────────
 
 export async function handleSubscriptionDeleted(sub: Stripe.Subscription) {
-  await prisma.subscription.updateMany({ where: { stripeSubscriptionId: sub.id }, data: { status: "canceled" } });
+  await updateSubscriptionStatus({ stripeSubscriptionId: sub.id, status: "canceled" });
   await prisma.license.updateMany({ where: { stripeSubId: sub.id }, data: { status: "expired" } });
-  console.log("[WEBHOOK] ✅ CANCELED:", sub.id);
-}
 
-// ── INVOICE PAID ─────────────────────────────────────────
+  const subscription = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: sub.id },
+    include: { product: { select: { name: true } } },
+  });
+  if (subscription) {
+    await sendCancellationEmail({
+      email: subscription.email,
+      plan: subscription.plan,
+      productName: subscription.product?.name || subscription.productCode || "VISLI",
+      renewalDate: subscription.currentPeriodEnd,
+    });
+  }
+}
 
 export async function handleInvoicePaid(invoice: Stripe.Invoice) {
   const subId = invoice.subscription as string;
   if (!subId) return;
+
   try {
     const s = await (await getStripe()).subscriptions.retrieve(subId);
     const end = new Date(s.current_period_end * 1000);
     const r = await resolveFromSubscription(s);
-    await prisma.subscription.updateMany({ where: { stripeSubscriptionId: subId }, data: { status: "active", currentPeriodEnd: end, ...(r ? { plan: r.plan, stripePriceId: r.priceId } : {}) } });
-    await prisma.license.updateMany({ where: { stripeSubId: subId }, data: { status: "active", expiresAt: end, ...(r ? { plan: r.plan, features: [] } : {}) } });
-    console.log("[WEBHOOK] ✅ RENEWED until:", end.toISOString());
-  } catch (e) { console.error("[WEBHOOK] Renewal error:", e); }
-}
 
-// ── INVOICE FAILED ───────────────────────────────────────
+    await updateSubscriptionStatus({
+      stripeSubscriptionId: subId,
+      status: "active",
+      currentPeriodEnd: end,
+      ...(r ? { plan: r.plan, stripePriceId: r.priceId, productCode: r.productCode } : {}),
+    });
+
+    await syncLicenseFromSubscription({
+      subscriptionId: subId,
+      plan: r?.plan || "basic",
+      expiresAt: end,
+      status: "active",
+    });
+
+    const subscription = await prisma.subscription.findFirst({
+      where: { stripeSubscriptionId: subId },
+      include: { product: { select: { name: true } } },
+    });
+    if (subscription) {
+      await sendPaymentSuccessEmail({
+        email: subscription.email,
+        plan: subscription.plan,
+        productName: subscription.product?.name || subscription.productCode || "VISLI",
+        renewalDate: subscription.currentPeriodEnd,
+      });
+    }
+  } catch (e) {
+    console.error("[WEBHOOK] Renewal error:", e);
+  }
+}
 
 export async function handleInvoiceFailed(invoice: Stripe.Invoice) {
   const subId = invoice.subscription as string;
   if (!subId) return;
-  await prisma.subscription.updateMany({ where: { stripeSubscriptionId: subId }, data: { status: "past_due" } });
+
+  await updateSubscriptionStatus({ stripeSubscriptionId: subId, status: "past_due" });
   await prisma.license.updateMany({ where: { stripeSubId: subId }, data: { status: "suspended" } });
-  console.log("[WEBHOOK] ✅ SUSPENDED:", subId);
+
+  const subscription = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId: subId },
+    include: { product: { select: { name: true } } },
+  });
+  if (subscription) {
+    await sendPaymentFailedEmail({
+      email: subscription.email,
+      plan: subscription.plan,
+      productName: subscription.product?.name || subscription.productCode || "VISLI",
+      renewalDate: subscription.currentPeriodEnd,
+    });
+  }
 }

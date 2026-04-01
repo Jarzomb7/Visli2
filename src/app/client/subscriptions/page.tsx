@@ -2,7 +2,16 @@
 
 import { useEffect, useState, useCallback } from "react";
 
-interface Plan { id: number; name: string; description: string | null; priceMonthly: number; stripePriceId: string; features: string[] | null; isActive: boolean; }
+interface Plan {
+  planId: number;
+  planName: string;
+  priceMonthly: number;
+  stripePriceId: string;
+  products: string[];
+  limits: Record<string, number>;
+  productLimits: Record<string, Record<string, number>>;
+  isActive: boolean;
+}
 interface Sub {
   id: number; status: string; plan: string; productCode: string | null; cancelAt: string | null;
   currentPeriodEnd: string | null; stripeSubscriptionId: string | null; createdAt: string;
@@ -136,28 +145,23 @@ export default function ClientSubscriptionsPage() {
           <h2 className="font-display text-lg font-semibold text-white mb-4">{hasActiveSub ? "Change Plan" : "Choose a Plan"}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             {plans.map((plan) => (
-              <div key={plan.id} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300 flex flex-col">
+              <div key={plan.planId} className="glass-card p-6 hover:border-white/[0.12] transition-all duration-300 flex flex-col">
                 <div className="flex-1">
-                  <h3 className="font-display text-xl font-bold text-white">{plan.name}</h3>
-                  {plan.description && <p className="mt-1 text-sm text-white/40">{plan.description}</p>}
-                  <p className="mt-4 font-display text-3xl font-bold text-white">{plan.priceMonthly} <span className="text-base text-white/30 font-normal">zł/mies.</span></p>
-                  {plan.features && plan.features.length > 0 && (
-                    <ul className="mt-4 space-y-2">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-center gap-2 text-sm text-white/60">
-                          <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                  <h3 className="font-display text-xl font-bold text-white">{plan.planName}</h3>
+                                    <p className="mt-4 font-display text-3xl font-bold text-white">{plan.priceMonthly} <span className="text-base text-white/30 font-normal">zł/mies.</span></p>
+                  <div className="mt-4 space-y-2 text-xs text-white/60">
+                    <p>Products: {plan.products.length ? plan.products.join(", ") : "All"}</p>
+                    {Object.keys(plan.limits).length > 0 && (
+                      <p>Limits: {Object.entries(plan.limits).map(([k,v]) => `${k}: ${v}`).join(" • ")}</p>
+                    )}
+                  </div>
                 </div>
                 <button
-                  onClick={() => buyPlan(plan.id)}
-                  disabled={buyingPlan === plan.id}
+                  onClick={() => buyPlan(plan.planId)}
+                  disabled={buyingPlan === plan.planId}
                   className="btn-primary w-full mt-6"
                 >
-                  {buyingPlan === plan.id ? "Redirecting..." : hasActiveSub ? "Switch to this plan" : "Subscribe"}
+                  {buyingPlan === plan.planId ? "Redirecting..." : hasActiveSub ? "Switch to this plan" : "Subscribe"}
                 </button>
               </div>
             ))}
